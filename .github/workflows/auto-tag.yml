@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     # Skip re-running on commits from this workflow itself (defensive — we
     # push tags, not commits, but guard anyway in case that ever changes).
-    if: "!contains(github.event.head_commit.message, '[skip auto-tag]')"
+    if: "!contains(toJson(github.event.commits.*.message), '[skip auto-tag]')"
 
     steps:
       - name: Checkout
