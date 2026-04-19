@@ -1,0 +1,9 @@
+{
+  "Author": "XeldarAlz",
+  "Name": "Doman Mahjong AI",
+  "Punchline": "Autonomous play for FFXIV Doman Mahjong.",
+  "Description": "Plays FFXIV Doman Mahjong end-to-end with a hand-crafted efficiency. Suggestion-only mode supported. Automation off by default.",
+  "ApplicableVersion": "any",
+  "RepoUrl": "https://github.com/XeldarAlz/FFXIV-MahjongAI",
+  "Tags": ["mahjong", "doman", "gold-saucer", "ai", "automation"]
+}
