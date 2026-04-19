@@ -1,6 +1,6 @@
 <Project Sdk="Dalamud.NET.Sdk/14.0.2">
   <PropertyGroup>
-    <Version>0.0.0.1</Version>
+    <Version>0.0.0.2</Version>
     <Description>Autonomous AI for FFXIV Doman Mahjong — heuristic + ISMCTS policy with Bayesian opponent modeling.</Description>
     <PackageProjectUrl>https://github.com/XeldarAlz/FFXIV-MahjongAI</PackageProjectUrl>
     <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
