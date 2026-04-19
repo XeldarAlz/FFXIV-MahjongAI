@@ -70,7 +70,7 @@ jobs:
           git tag -a "$TAG" -m "Release $TAG"
           if git push origin "$TAG"; then
             echo "Pushed tag $TAG."
-          elif git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
+          elif git ls-remote --tags origin "refs/tags/$TAG" | awk '{print $2}' | grep -qx "refs/tags/$TAG"; then
             echo "Tag $TAG was created by another run — nothing to do."
           else
             echo "::error::Failed to push tag $TAG"
