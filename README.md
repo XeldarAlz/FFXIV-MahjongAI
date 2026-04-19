@@ -1,120 +1,145 @@
-# FFXIV-MahjongAI
+<p align="center">
+  <img src="DomanMahjongAI/images/icon.png" width="96" alt="Doman Mahjong AI icon">
+</p>
 
-Dalamud plugin that plays FFXIV Doman Mahjong. Heuristic + ISMCTS policy, rule-based Bayesian opponent model, fully client-side C# — no Python, no GPU, no training pipeline. Target skill: upper-intermediate to low-expert (Tenhou 4–6 dan equivalent).
+<h1 align="center">Doman Mahjong AI</h1>
 
-## Current status
+<p align="center">
+  Dalamud plugin that plays FFXIV Doman Mahjong — or whispers the best move in your ear.
+</p>
 
-Actively-developed. Discard-only auto-play works; more features landing incrementally.
+<p align="center">
+  <a href="#install"><img src="https://img.shields.io/badge/install-custom%20repo-1b7fb3.svg" alt="Install"></a>
+  <img src="https://img.shields.io/badge/tests-185%20passing-2ea043.svg" alt="Tests passing">
+  <img src="https://img.shields.io/badge/warnings-0-2ea043.svg" alt="0 warnings">
+  <img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="AGPL-3.0">
+</p>
 
-| Area | State |
-|---|---|
-| Engine (tiles, shanten, ukeire, yaku, fu, score) | complete, 129 tests |
-| EfficiencyPolicy (discard scorer + riichi eval + placement adjuster + call eval + push/fold) | 37 tests |
-| OpponentModel (tenpai prob + hand marginal + danger map) | scaffolded; needs opponent-discard data |
-| ISMCTS policy | scaffolded; tree search in progress |
-| Dispatch: discard, pass, call | live (via `AtkUnitBase.FireCallback`) |
-| Dispatch: riichi, kan, tsumo, ron | not yet mapped |
-| AddonEmj RE | hand + scores read; discard pools + dealer + round still owed |
-| Tests total | 166 passing, 0 warnings |
+---
 
-## Install (custom Dalamud repo)
+## What it does
 
-Because this plugin contains automation, it cannot ship via the official Dalamud repo. Install via the custom-repo flow:
+Open a Doman Mahjong table at the Gold Saucer. The plugin reads your hand and the table state, runs a mahjong engine with full shanten / ukeire / yaku / fu / score, scores every discard against an opponent danger model, and either:
 
-1. In-game: `/xlsettings` → **Experimental** tab.
-2. Under **Custom Plugin Repositories**, paste:
+- **Suggestion mode (default)** — shows the top picks with reasoning. You click.
+- **Auto-play mode (opt-in)** — humanized-timing clicks on your behalf.
+
+Everything runs client-side in pure C#. No Python, no GPU, no external service.
+
+## Install
+
+The plugin uses automation, so it cannot ship via the official Dalamud repo. Install via custom-repo:
+
+1. In-game: `/xlsettings` → **Experimental**.
+2. Paste into **Custom Plugin Repositories**:
    ```
    https://raw.githubusercontent.com/XeldarAlz/FFXIV-MahjongAI/main/repo/repo.json
    ```
-3. Enable the checkbox. Click **Save and Close**.
-4. Open `/xlplugins`, search **Doman Mahjong AI**, **Install**.
-5. Run `/mjauto debug` in chat to open the overlay. Accept the ToS modal to arm automation.
-
-Plugin is off-by-default. Automation requires explicit acknowledgement of the in-plugin ToS disclosure.
+3. Enable the checkbox, **Save and Close**.
+4. `/xlplugins` → search **Doman Mahjong AI** → **Install**.
+5. `/mjauto` to open. Accept the terms disclosure once.
 
 ## Usage
 
-- `/mjauto debug` — open the debug overlay (main UI).
-- `/mjauto on` / `off` — arm/disarm automation.
-- `/mjauto policy eff` — select efficiency policy (ismcts coming later).
+| Command | What it does |
+|---|---|
+| `/mjauto` | Open the main window |
+| `/mjauto on` / `off` | Arm / disarm automation |
+| `/mjauto policy eff` / `mcts` | Switch policy tier |
+| `/mjauto debug` | Open the developer overlay |
 
-Overlay panels:
-- **Auto-play** — live state + last action taken.
-- **AddonEmj status** — whether the in-match addon is detected.
-- **Suggestions** — top-5 discard picks with reasoning (shanten, ukeire, dora, yakuhai, expected deal-in cost).
-- **Actions** — manual Auto-discard / Test discard slot N / Test pass / diagnostic memory dumps.
+In the main window:
 
-## Architecture
-
-```
-┌──── Dalamud Plugin (net10-windows) ──────────────────────────────┐
-│   AddonEmjReader → StateSnapshot → Policy → InputDispatcher       │
-│   AutoPlayLoop watches state, dispatches with humanized delay     │
-└───────────────────────────────────────────────────────────────────┘
-        │                                         │
-        ▼                                         ▼
-  Engine (net8.0) ────────────┐       Policy (net8.0)
-  Tiles, shanten, ukeire,      │       EfficiencyPolicy, DiscardScorer,
-  yaku, fu, score, wall,       │       RiichiEvaluator, CallEvaluator,
-  decomposer, StateSnapshot    │       PushFoldEvaluator, PlacementAdjuster
-                               │       OpponentModel, IsmctsPolicy, Determinizer
-                               │
-                               └── All pure C#, no Dalamud deps, unit-testable
-```
+- **Off / Suggestions / Auto-play** pill — three-way mode switch.
+- **Live panel** — seat scores, your hand, policy pick, top-3 candidates with shanten + ukeire, and the last auto-action taken.
+- **Settings** (collapsed) — policy tier, humanized delay slider, developer tools toggle.
 
 ## Safety
 
-- **ToS acceptance gate** blocks automation until explicitly acknowledged.
-- **Suggestion-only mode** shows policy picks without dispatching inputs.
-- **Dispatch guards** — every FireCallback attempt returns `HookFailed` silently on invalid state (no crashes).
-- **Humanized timing** — log-normal ~900ms median, 400ms floor, 2500ms cap.
-- **Kill switch** — unchecking "Automation armed" halts the loop mid-hand.
+The plugin is **off by default** and requires explicit acknowledgement of a terms-of-service disclosure before automation can be enabled. Beyond that:
 
-## Development
+- **Suggestion-only** mode shows picks without ever dispatching inputs.
+- **Humanized timing** — log-normal delay, ~1.2s median, 400ms floor, 2.5s cap, adjustable in Settings.
+- **Kill switch** — flipping the mode pill to Off halts the loop mid-hand.
+- **Dispatch guards** — every FireCallback is wrapped; invalid states return `HookFailed` silently, never crash.
 
-### Build
+Third-party automation is against the FFXIV Terms of Service. Use at your own risk.
+
+## What's under the hood
 
 ```
+┌── Dalamud plugin (net10-windows) ──────────────────────────────┐
+│  AddonEmjReader ──► StateSnapshot ──► Policy ──► InputDispatch │
+│     ▲                                              │           │
+│     │ AutoPlayLoop watches state, humanized delay  ▼           │
+│     └──────────── FireCallback to game             MainWindow  │
+└────────────────────────────────────────────────────────────────┘
+       │                                       │
+       ▼                                       ▼
+   Engine (net8.0)                        Policy (net8.0)
+   Tiles · shanten · ukeire               EfficiencyPolicy · DiscardScorer
+   yaku · fu · score · wall               RiichiEvaluator · CallEvaluator
+   decomposer · StateSnapshot             PushFoldEvaluator · PlacementAdjuster
+                                          OpponentModel · IsmctsPolicy · Determinizer
+                                          Simulator · WeightTuner · TenhouLog
+```
+
+Both class libraries are **Dalamud-free and fully unit-tested** (185 tests, 0 warnings). They compile stand-alone and can be dropped into any C# project.
+
+## Features
+
+**Implemented**
+
+- Engine: shanten (standard + chitoi + kokushi), ukeire, all common yaku, fu, score, payments, dora
+- Efficiency policy: weighted discard scorer with shanten / ukeire / dora / yakuhai / deal-in-cost
+- Riichi + call + push/fold evaluators
+- Placement-aware weight adjustment (oorasu pressure)
+- Heuristic opponent model: tenpai probability, hand marginal, danger map (genbutsu + suji + kabe)
+- ISMCTS policy with determinization, UCB1, progressive widening, opponent-sim rollouts
+- Hand simulator with tsumo + ron + riichi detection for self-play
+- Weight tuners: coordinate descent + (μ/μ, λ)-ES with Gaussian proposals
+- Tenhou log parser (136→34 tile mapping, event tag decoding) and replay harness
+
+**Still owed (needs live-game capture)**
+
+- Dispatch patterns for riichi / kan / tsumo / ron (opcodes currently speculative, stubs return `HookFailed` until confirmed)
+- AddonEmj RE for opponent discard pools, dora indicator, dealer, round, honba, riichi sticks — until mapped, the opponent model operates on partial data
+
+## Developer notes
+
+### Build & test
+
+```bash
 dotnet build DomanMahjongAI.sln
+dotnet test  DomanMahjongAI.sln
 ```
 
-### Tests
-
-```
-dotnet test DomanMahjongAI.sln
-```
-
-### Project layout
+### Layout
 
 ```
 FFXIV-MahjongAI/
-├── DomanMahjongAI/       Dalamud plugin entry + UI + dispatch + reader
-├── Engine/               Core mahjong primitives (no Dalamud deps)
-├── Policy/               Decision logic (no Dalamud deps)
+├── DomanMahjongAI/       Plugin entry · UI · dispatch · reader
+│   └── images/icon.png   Plugin icon (64×64)
+├── Engine/               Core mahjong primitives
+├── Policy/               Decision logic · ISMCTS · tuners · Tenhou parser
 ├── tests/
-│   ├── Engine.Tests/
-│   └── Policy.Tests/
-├── repo/
-│   └── repo.json         Custom Dalamud repo manifest
-└── .github/workflows/    CI + release workflows
+│   ├── Engine.Tests/     129 tests
+│   └── Policy.Tests/      56 tests
+├── repo/repo.json        Custom Dalamud repo manifest
+├── tools/gen_icon.ps1    Regenerates the plugin icon from source
+└── .github/workflows/    CI + release
 ```
 
-### Maintaining a release
+### Cutting a release
 
-1. Bump `AssemblyVersion` in `DomanMahjongAI/DomanMahjongAI.csproj` AND `repo/repo.json`.
-2. Push tag `vX.Y.Z`. `.github/workflows/release.yml` auto-builds + uploads `latest.zip` to a new GitHub release. `repo.json` already points at `releases/latest/download/latest.zip`, so no further edit needed per release.
+1. Bump `Version` in `DomanMahjongAI/DomanMahjongAI.csproj` and `repo/repo.json`.
+2. `git push --tags` with a `vX.Y.Z` tag. The release workflow builds and uploads `latest.zip`; `repo.json` pins `releases/latest/download/latest.zip`, so no further manual edits.
 
-## Plan
+### Regenerating the icon
 
-Long-form implementation plan at [`doman-mahjong-ai-plan-heuristic.md`](../doman-mahjong-ai-plan-heuristic.md) (local file, not in repo).
-
-Short version of remaining work:
-
-1. **Phase 1 finish** — capture dispatch patterns for Riichi / Kan / Tsumo / Ron (needs live play).
-2. **Phase 2** — RE opponent discard pools, dealer, round; use them in `OpponentModel` for real danger maps.
-3. **Phase 3** — Tenhou-log replay harness + weight tuner.
-4. **Phase 4** — ISMCTS tree search (decision / chance nodes, UCB1, rollouts).
-5. **Phase 5** — polish overlay, add stats panel, ship real release.
+```bash
+powershell -ExecutionPolicy Bypass -File tools/gen_icon.ps1
+```
 
 ## License
 
@@ -122,5 +147,5 @@ AGPL-3.0-or-later.
 
 ## Acknowledgements
 
-- Structural exemplar: [ffxiv-rota](https://github.com/XeldarAlz/ffxiv-rota) (my own Dalamud plugin).
-- Plan and heuristic design drawn from public Tenhou / Riichi literature and the Suphx/Mortal papers — but deliberately avoids ML-track dependencies.
+- Structural exemplar: [ffxiv-rota](https://github.com/XeldarAlz/ffxiv-rota).
+- Heuristic design drawn from public Tenhou / Riichi literature and the Suphx / Mortal papers, without ML-track dependencies.

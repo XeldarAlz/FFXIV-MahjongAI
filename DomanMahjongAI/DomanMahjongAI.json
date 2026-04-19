@@ -1,9 +1,10 @@
 {
   "Author": "XeldarAlz",
   "Name": "Doman Mahjong AI",
-  "Punchline": "Autonomous play for FFXIV Doman Mahjong.",
-  "Description": "Plays FFXIV Doman Mahjong end-to-end with a hand-crafted efficiency. Suggestion-only mode supported. Automation off by default.",
+  "Punchline": "Play, suggest, or autopilot Doman Mahjong.",
+  "Description": "Reads your Doman Mahjong table and either suggests the best discard or plays for you. Ships with an efficiency policy (shanten + ukeire + danger) and an optional ISMCTS policy. Suggestion-only by default; full automation is opt-in and gated behind a terms-of-service acknowledgement.",
   "ApplicableVersion": "any",
   "RepoUrl": "https://github.com/XeldarAlz/FFXIV-MahjongAI",
-  "Tags": ["mahjong", "doman", "gold-saucer", "ai", "automation"]
+  "IconUrl": "https://raw.githubusercontent.com/XeldarAlz/FFXIV-MahjongAI/main/DomanMahjongAI/images/icon.png",
+  "Tags": ["mahjong", "doman", "gold-saucer", "ai", "automation", "suggestions"]
 }
