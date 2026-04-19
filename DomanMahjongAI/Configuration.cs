@@ -26,5 +26,18 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>Target median delay (ms) between auto-play actions.</summary>
     public int HumanizedDelayMs { get; set; } = 1200;
 
+    /// <summary>
+    /// Draw a colored box + arrow on the recommended discard tile directly in the
+    /// Doman Mahjong game UI. Intended as the primary cue in "Suggestions" mode so
+    /// users don't have to parse shanten/ukeire numbers.
+    /// </summary>
+    public bool ShowInGameHighlight { get; set; } = true;
+
+    /// <summary>
+    /// When true, the main window shows the shanten / ukeire / score table under the
+    /// headline pick. Defaults off — most users just want the "discard X" cue.
+    /// </summary>
+    public bool ShowSuggestionDetails { get; set; } = false;
+
     public void Save() => Plugin.PluginInterface.SavePluginConfig(this);
 }

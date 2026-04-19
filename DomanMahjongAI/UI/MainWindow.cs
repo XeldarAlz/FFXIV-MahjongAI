@@ -203,6 +203,8 @@ public sealed class MainWindow : Window, IDisposable
 
     private void DrawSuggestion(StateSnapshot snap)
     {
+        var cfg = plugin.Configuration;
+
         ImGui.PushStyleColor(ImGuiCol.Text, ColorHeader);
         ImGui.TextUnformatted("Best move");
         ImGui.PopStyleColor();
@@ -230,23 +232,45 @@ public sealed class MainWindow : Window, IDisposable
             return;
         }
 
-        // Headline pick.
-        string pickStr = choice.DiscardTile?.ToString() ?? "—";
+        // Plain-language headline: "→ Discard  South Wind (2z)" instead of "→ Discard 2z".
+        string verb = FriendlyActionVerb(choice.Kind);
+        string tileLabel = choice.DiscardTile is { } t ? FriendlyTileName(t) : "—";
         ImGui.PushStyleColor(ImGuiCol.Text, ColorAccent);
-        ImGui.TextUnformatted($"  → {choice.Kind} {pickStr}");
+        ImGui.TextUnformatted($"  → {verb}  {tileLabel}");
         ImGui.PopStyleColor();
 
-        // Top candidates, compact.
-        int show = Math.Min(3, scored.Length);
-        for (int i = 0; i < show; i++)
+        if (cfg.ShowInGameHighlight)
         {
-            var s = scored[i];
-            var color = i == 0 ? ColorAccent : ColorMuted;
-            ImGui.PushStyleColor(ImGuiCol.Text, color);
-            ImGui.TextUnformatted(
-                $"    {i + 1}.  {s.Discard}   shanten {s.ShantenAfter}   " +
-                $"ukeire {s.UkeireKinds}k/{s.UkeireWeighted}w");
+            ImGui.PushStyleColor(ImGuiCol.Text, ColorMuted);
+            ImGui.TextUnformatted("    The tile is highlighted in the mahjong window.");
             ImGui.PopStyleColor();
+        }
+
+        // Details (shanten / ukeire table) behind a toggle — off by default.
+        ImGui.Spacing();
+        bool details = cfg.ShowSuggestionDetails;
+        if (ImGui.Checkbox("Show analysis details", ref details))
+        {
+            cfg.ShowSuggestionDetails = details;
+            cfg.Save();
+        }
+
+        if (details)
+        {
+            ImGui.TextDisabled(
+                "shanten = turns away from ready.  ukeire = tiles that complete your wait " +
+                "(kinds / weighted by copies left).");
+            int show = Math.Min(3, scored.Length);
+            for (int i = 0; i < show; i++)
+            {
+                var s = scored[i];
+                var color = i == 0 ? ColorAccent : ColorMuted;
+                ImGui.PushStyleColor(ImGuiCol.Text, color);
+                ImGui.TextUnformatted(
+                    $"    {i + 1}.  {s.Discard}   shanten {s.ShantenAfter}   " +
+                    $"ukeire {s.UkeireKinds}k/{s.UkeireWeighted}w");
+                ImGui.PopStyleColor();
+            }
         }
 
         if (plugin.AutoPlay.LastActionDescription != "(none)")
@@ -256,6 +280,44 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.TextWrapped($"Last action: {plugin.AutoPlay.LastActionDescription}");
             ImGui.PopStyleColor();
         }
+    }
+
+    private static string FriendlyActionVerb(ActionKind kind) => kind switch
+    {
+        ActionKind.Discard    => "Discard",
+        ActionKind.Riichi     => "Riichi on",
+        ActionKind.Tsumo      => "Win (tsumo)",
+        ActionKind.Ron        => "Win (ron)",
+        ActionKind.Pon        => "Pon",
+        ActionKind.Chi        => "Chi",
+        ActionKind.AnKan      => "Kan",
+        ActionKind.MinKan     => "Kan",
+        ActionKind.ShouMinKan => "Kan",
+        _                     => kind.ToString(),
+    };
+
+    private static string FriendlyTileName(Engine.Tile tile)
+    {
+        string code = tile.ShortName;
+        string name = tile.Suit switch
+        {
+            Engine.TileSuit.Man => $"{tile.Number} Character",
+            Engine.TileSuit.Pin => $"{tile.Number} Dot",
+            Engine.TileSuit.Sou => $"{tile.Number} Bamboo",
+            Engine.TileSuit.Honor => tile.HonorNumber switch
+            {
+                1 => "East Wind",
+                2 => "South Wind",
+                3 => "West Wind",
+                4 => "North Wind",
+                5 => "White Dragon",
+                6 => "Green Dragon",
+                7 => "Red Dragon",
+                _ => code,
+            },
+            _ => code,
+        };
+        return $"{name}  ({code})";
     }
 
     private void DrawSettings(Configuration cfg)
@@ -284,6 +346,16 @@ public sealed class MainWindow : Window, IDisposable
             cfg.Save();
         }
         ImGui.TextDisabled("Average time the plugin waits before each click.");
+
+        ImGui.Spacing();
+
+        bool highlight = cfg.ShowInGameHighlight;
+        if (ImGui.Checkbox("Highlight the suggested tile in the mahjong window", ref highlight))
+        {
+            cfg.ShowInGameHighlight = highlight;
+            cfg.Save();
+        }
+        ImGui.TextDisabled("A colored box + arrow on the tile to discard. Shown while Suggestions mode is on.");
 
         ImGui.Spacing();
         ImGui.Separator();

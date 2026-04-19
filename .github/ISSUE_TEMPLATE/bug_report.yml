@@ -1,0 +1,66 @@
+name: Bug report
+description: Something's broken or behaving unexpectedly.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please fill out as much as you can — it makes a huge difference.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you see? What did you expect to see instead?
+      placeholder: "The plugin clicked the wrong call button when three chi options were offered..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to trigger the bug. If it's intermittent, say so.
+      placeholder: |
+        1. Start a Doman Mahjong table
+        2. Switch to Auto-play
+        3. ...
+    validations:
+      required: true
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: Shown in /xlplugins next to "Doman Mahjong AI".
+      placeholder: "v0.0.0.4"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      description: Which mode were you in when it happened?
+      options:
+        - Hints
+        - Auto-play
+        - Off
+        - Not applicable
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / error text
+      description: |
+        If Dalamud showed an error, paste it here. If you were running with `/mjauto log on`, attach the log.
+      render: shell
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, game context, other plugins that might interact, etc.

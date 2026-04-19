@@ -34,6 +34,7 @@ public sealed class Plugin : IDalamudPlugin
     public Configuration Configuration { get; }
     public MainWindow MainWindow { get; }
     public DebugOverlay DebugOverlay { get; }
+    public HandOverlay HandOverlay { get; }
     public AddonEmjReader AddonReader { get; }
     public StateAggregator Aggregator { get; }
     public IPolicy Policy { get; private set; }
@@ -59,6 +60,7 @@ public sealed class Plugin : IDalamudPlugin
 
         MainWindow = new MainWindow(this);
         DebugOverlay = new DebugOverlay(this);
+        HandOverlay = new HandOverlay(this);
         WindowSystem.AddWindow(MainWindow);
         WindowSystem.AddWindow(DebugOverlay);
 
@@ -80,6 +82,7 @@ public sealed class Plugin : IDalamudPlugin
         WindowSystem.RemoveAllWindows();
         MainWindow.Dispose();
         DebugOverlay.Dispose();
+        HandOverlay.Dispose();
         AutoPlay.Dispose();
         EventLogger.Dispose();
         Aggregator.Dispose();
