@@ -37,7 +37,7 @@ jobs:
         run: |
           version=$(grep -oP '(?<=<Version>)[^<]+' DomanMahjongAI/DomanMahjongAI.csproj)
           if [ -z "$version" ]; then
-            echo "::error::Could not parse <Version> from DomanMahjongAI.csproj"
+            echo "::error::Could not parse <Version> from DomanMahjongAI/DomanMahjongAI.csproj"
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
