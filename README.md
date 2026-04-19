@@ -49,7 +49,7 @@ Tick the checkbox, save. Then `/xlplugins` â†’ search **Doman Mahjong Solver** â
 
 Auto-play uses third-party input automation, which is **against the FFXIV Terms of Service**. Square Enix can and does sanction accounts for it. This plugin is provided as-is. Use **Hints mode** unless you've thought carefully about the risk.
 
-| | |
+| Protection | What it does |
 |---|---|
 | **Off by default** | Nothing runs until you accept the notice and pick a non-Off mode. |
 | **Hints are safe** | No clicks ever sent to the game in hint mode. Read-only. |
