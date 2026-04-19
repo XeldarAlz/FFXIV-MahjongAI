@@ -30,7 +30,7 @@ public sealed class MainWindow : Window, IDisposable
     private static readonly Vector4 ColorHeader    = new(0.95f, 0.95f, 1.00f, 1f);
 
     public MainWindow(Plugin plugin)
-        : base("Doman Mahjong AI###domanmahjong-main")
+        : base("Doman Mahjong Solver###domanmahjong-main")
     {
         this.plugin = plugin;
         Size = new Vector2(460, 540);
@@ -74,7 +74,7 @@ public sealed class MainWindow : Window, IDisposable
     private void DrawTosGate(Configuration cfg)
     {
         ImGui.PushStyleColor(ImGuiCol.Text, ColorHeader);
-        ImGui.TextUnformatted("Welcome to Doman Mahjong AI");
+        ImGui.TextUnformatted("Welcome to Doman Mahjong Solver");
         ImGui.PopStyleColor();
         ImGui.Spacing();
         ImGui.TextWrapped(

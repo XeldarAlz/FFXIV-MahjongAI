@@ -1,6 +1,6 @@
 {
   "Author": "XeldarAlz",
-  "Name": "Doman Mahjong AI",
+  "Name": "Doman Mahjong Solver",
   "Punchline": "Doman Mahjong helper — hints or auto-play.",
   "Description": "A helper for Doman Mahjong at the Gold Saucer. Two modes:\n\n• Hint mode (default): shows the best tile to discard and a short explanation. You still click every move.\n• Auto-play: the plugin watches the table and clicks for you with natural pacing.\n\nStarts off by default. You must accept a short notice before auto-play can be turned on, and you can switch back to hints or turn it off at any time from the plugin window.",
   "ApplicableVersion": "any",

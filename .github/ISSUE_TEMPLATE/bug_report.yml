@@ -33,7 +33,7 @@ body:
     id: plugin-version
     attributes:
       label: Plugin version
-      description: Shown in /xlplugins next to "Doman Mahjong AI".
+      description: Shown in /xlplugins next to "Doman Mahjong Solver".
       placeholder: "v0.0.0.4"
     validations:
       required: true

@@ -1,7 +1,7 @@
 [
   {
     "Author": "XeldarAlz",
-    "Name": "Doman Mahjong AI",
+    "Name": "Doman Mahjong Solver",
     "InternalName": "DomanMahjongAI",
     "AssemblyVersion": "0.0.0.4",
     "TestingAssemblyVersion": "0.0.0.4",

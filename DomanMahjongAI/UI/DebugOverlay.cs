@@ -18,7 +18,7 @@ public sealed class DebugOverlay : Window, IDisposable
     private string lastDispatchMsg = "";
 
     public DebugOverlay(Plugin plugin)
-        : base("Doman Mahjong AI###domanmahjong-debug")
+        : base("Doman Mahjong Solver###domanmahjong-debug")
     {
         this.plugin = plugin;
         Size = new Vector2(560, 720);
@@ -31,7 +31,7 @@ public sealed class DebugOverlay : Window, IDisposable
     {
         var cfg = plugin.Configuration;
 
-        ImGui.TextUnformatted("Doman Mahjong AI — debug overlay");
+        ImGui.TextUnformatted("Doman Mahjong Solver — debug overlay");
         ImGui.Separator();
 
         if (!cfg.TosAccepted)

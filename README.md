@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="DomanMahjongAI/images/icon.png" width="128" alt="Doman Mahjong AI icon">
+  <img src="DomanMahjongAI/images/icon.png" width="128" alt="Doman Mahjong Solver icon">
 </p>
 
-<h1 align="center">Doman Mahjong AI</h1>
+<h1 align="center">Doman Mahjong Solver</h1>
 
 <p align="center">
   A helper for Doman Mahjong at the Gold Saucer.<br>
@@ -27,7 +27,7 @@ That's it. Three buttons: **Off / Hints / Auto-play**.
    https://raw.githubusercontent.com/XeldarAlz/FFXIV-MahjongAI/main/repo/repo.json
    ```
 3. Tick the checkbox next to it, press **Save and Close**.
-4. Open `/xlplugins`, search **Doman Mahjong AI**, press **Install**.
+4. Open `/xlplugins`, search **Doman Mahjong Solver**, press **Install**.
 5. Open the plugin (`/mjauto`). First time you run it, accept the short notice.
 
 ## Using it

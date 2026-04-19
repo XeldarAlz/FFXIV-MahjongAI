@@ -70,7 +70,7 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainWindow;
         PluginInterface.UiBuilder.OpenConfigUi += ToggleMainWindow;
 
-        Log.Information("Doman Mahjong AI loaded.");
+        Log.Information("Doman Mahjong Solver loaded.");
     }
 
     public void Dispose()
