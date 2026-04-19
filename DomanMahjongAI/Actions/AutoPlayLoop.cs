@@ -131,7 +131,7 @@ public sealed class AutoPlayLoop : IDisposable
     private void ScheduleDiscard()
     {
         actionPending = true;
-        var delay = HumanTiming.RandomDelay(medianMs: 1200);
+        var delay = HumanTiming.RandomDelay(medianMs: plugin.Configuration.HumanizedDelayMs);
         _ = Plugin.Framework.RunOnTick(() =>
         {
             try

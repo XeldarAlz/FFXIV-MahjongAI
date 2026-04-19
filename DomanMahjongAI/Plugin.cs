@@ -32,6 +32,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public readonly WindowSystem WindowSystem = new("DomanMahjongAI");
     public Configuration Configuration { get; }
+    public MainWindow MainWindow { get; }
     public DebugOverlay DebugOverlay { get; }
     public AddonEmjReader AddonReader { get; }
     public StateAggregator Aggregator { get; }
@@ -56,14 +57,16 @@ public sealed class Plugin : IDalamudPlugin
         EventLogger = new InputEventLogger(AddonReader);
         AutoPlay = new AutoPlayLoop(this);
 
+        MainWindow = new MainWindow(this);
         DebugOverlay = new DebugOverlay(this);
+        WindowSystem.AddWindow(MainWindow);
         WindowSystem.AddWindow(DebugOverlay);
 
         command = new MjAutoCommand(this);
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
-        PluginInterface.UiBuilder.OpenMainUi += ToggleDebugOverlay;
-        PluginInterface.UiBuilder.OpenConfigUi += ToggleDebugOverlay;
+        PluginInterface.UiBuilder.OpenMainUi += ToggleMainWindow;
+        PluginInterface.UiBuilder.OpenConfigUi += ToggleMainWindow;
 
         Log.Information("Doman Mahjong AI loaded.");
     }
@@ -72,15 +75,18 @@ public sealed class Plugin : IDalamudPlugin
     {
         command.Dispose();
         PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
-        PluginInterface.UiBuilder.OpenMainUi -= ToggleDebugOverlay;
-        PluginInterface.UiBuilder.OpenConfigUi -= ToggleDebugOverlay;
+        PluginInterface.UiBuilder.OpenMainUi -= ToggleMainWindow;
+        PluginInterface.UiBuilder.OpenConfigUi -= ToggleMainWindow;
         WindowSystem.RemoveAllWindows();
+        MainWindow.Dispose();
         DebugOverlay.Dispose();
         AutoPlay.Dispose();
         EventLogger.Dispose();
         Aggregator.Dispose();
         AddonReader.Dispose();
     }
+
+    public void ToggleMainWindow() => MainWindow.Toggle();
 
     public void ToggleDebugOverlay() => DebugOverlay.Toggle();
 

@@ -9,7 +9,7 @@ namespace DomanMahjongAI.Commands;
 public sealed class MjAutoCommand : IDisposable
 {
     private const string Primary = "/mjauto";
-    private const string HelpText = "Doman Mahjong AI. Subcommands: on | off | debug | policy <eff|mcts> | dump | addons [filter] | dumpmem [offset] [length] | atkvalues | agent [length] | emj [length] | log <on|off> | testdiscard <slot> | autodiscard";
+    private const string HelpText = "Open Doman Mahjong AI. Subcommands: on | off | open | debug | policy <eff|mcts> | dump | addons [filter] | dumpmem [offset] [length] | atkvalues | agent [length] | emj [length] | log <on|off> | testdiscard <slot> | autodiscard";
     // Note: removed /mjauto scan and /mjauto followptr — both dereferenced untrusted pointers and crashed the client.
 
     private readonly Plugin plugin;
@@ -38,7 +38,8 @@ public sealed class MjAutoCommand : IDisposable
         switch (sub)
         {
             case "":
-                plugin.ToggleDebugOverlay();
+            case "open":
+                plugin.ToggleMainWindow();
                 break;
 
             case "on":
