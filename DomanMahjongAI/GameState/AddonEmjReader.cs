@@ -199,8 +199,10 @@ public sealed class AddonEmjReader : IDisposable
         // un-mapped; instead the MeldTracker captures each meld when the auto-play
         // (or hooked manual click) accepts a call prompt. Reset the tracker when the
         // closed-hand count proves a new round has started (≥ 13 = no melds).
+        // Defensive copy: StateSnapshot is documented as immutable, so don't hand
+        // out a view that aliases the tracker's mutable internal list.
         plugin.MeldTracker.ResetIfRoundEnded(hand.Count);
-        var ourMelds = plugin.MeldTracker.Melds;
+        var ourMelds = plugin.MeldTracker.Melds.ToArray();
 
         return StateSnapshot.Empty with
         {
@@ -435,13 +437,14 @@ public sealed class AddonEmjReader : IDisposable
     /// <summary>
     /// Build the LegalActions record from the current state code. Three cases today:
     /// <list type="bullet">
-    ///   <item>State 15 (call prompt): scan AtkValues strings for "Pon"/"Chi"/"Kan"/"Ron"
-    ///       button labels and derive candidates from our hand. The game only offers calls
-    ///       for tiles we can actually claim, so we can deduce the claimed tile for
-    ///       unambiguous pon/kan cases (unique pair/triplet in hand). Chi is skipped
-    ///       until we map the claimed-tile offset (multiple valid sequences per hand make
-    ///       it genuinely ambiguous).</item>
-    ///   <item>Hand count 14: plain discard.</item>
+    ///   <item>State 15 (call prompt): scan AtkValues strings for Pon/Chi/Kan/Ron/Riichi/Tsumo
+    ///       button labels, then derive candidates. Pon/min-kan claims are deduced from the
+    ///       unique pair/triplet in hand (no candidate when ambiguous). Chi claims are read
+    ///       from <c>AtkValues[19]</c> (texture id = tile_id + 76041) and the
+    ///       <see cref="CallCandidateDeriver"/> emits per-variant candidates. Ron/Riichi/Tsumo
+    ///       are flag-only — the policy and AutoPlayLoop treat them as accept-via-opt-0.</item>
+    ///   <item>Hand count satisfies <c>% 3 == 2</c> (14/11/8/5/2): plain discard. This covers
+    ///       pre-discard for 0..4 open melds.</item>
     ///   <item>Otherwise: no actions.</item>
     /// </list>
     /// </summary>
@@ -563,10 +566,16 @@ public sealed class AddonEmjReader : IDisposable
         //   - claim 7s ⇄ AtkValues[19]=76065 (hand 2347m257p2567s57z → {5s,6s,7s})
         // The pon layout reuses [19] for something else (a hand tile), so we only read it
         // when the chi button is offered.
+        //
+        // Pon+Chi simultaneous prompt: DispatchCall() always clicks option 0, which is the
+        // leftmost button. If both Pon and Chi are offered, emitting both as candidates
+        // would let CallEvaluator pick chi while opt 0 is actually pon — a misfire. Mirror
+        // the offersKan-if-pon skip: only emit pon when both are offered; chi flag is still
+        // set so the loop resolves the prompt via Pass if pon isn't beneficial.
         if (offersChi)
         {
             flags |= ActionFlags.Chi;
-            if (atkCount > 19 &&
+            if (!offersPon && atkCount > 19 &&
                 atkValues[19].Type == FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int)
             {
                 int tex = atkValues[19].Int;
