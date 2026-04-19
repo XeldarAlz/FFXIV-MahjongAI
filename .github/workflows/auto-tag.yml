@@ -1,0 +1,67 @@
+name: Auto-tag on version bump
+
+# Whenever main moves, read the plugin version from the csproj. If that
+# version has no matching v* tag yet, create one and push it — the existing
+# release.yml fires from the tag push and publishes latest.zip.
+#
+# Bump Version in DomanMahjongAI/DomanMahjongAI.csproj before (or inside)
+# your PR and you get a release automatically once it merges. Commit without
+# a version bump and nothing happens.
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    # Skip re-running on commits from this workflow itself (defensive — we
+    # push tags, not commits, but guard anyway in case that ever changes).
+    if: "!contains(github.event.head_commit.message, '[skip auto-tag]')"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # Use the default GITHUB_TOKEN; pushing a tag back is allowed by
+          # contents:write above. Tag pushes don't re-trigger `push` on
+          # branches, so no recursion.
+
+      - name: Read plugin version from csproj
+        id: version
+        run: |
+          version=$(grep -oP '(?<=<Version>)[^<]+' DomanMahjongAI/DomanMahjongAI.csproj)
+          if [ -z "$version" ]; then
+            echo "::error::Could not parse <Version> from DomanMahjongAI.csproj"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version"    >> "$GITHUB_OUTPUT"
+          echo "Plugin version: $version"
+
+      - name: Check whether tag already exists
+        id: check
+        run: |
+          tag="${{ steps.version.outputs.tag }}"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag $tag already exists — nothing to do."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Tag $tag does not exist yet — will create."
+          fi
+
+      - name: Create and push tag
+        if: steps.check.outputs.exists == 'false'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
