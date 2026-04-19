@@ -13,6 +13,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: auto-tag-main
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -64,4 +68,11 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$TAG" -m "Release $TAG"
-          git push origin "$TAG"
+          if git push origin "$TAG"; then
+            echo "Pushed tag $TAG."
+          elif git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
+            echo "Tag $TAG was created by another run — nothing to do."
+          else
+            echo "::error::Failed to push tag $TAG"
+            exit 1
+          fi
