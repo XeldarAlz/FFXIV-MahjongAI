@@ -1,93 +1,75 @@
 <p align="center">
-  <img src="DomanMahjongAI/images/icon.png" width="128" alt="Doman Mahjong Solver icon">
+  <img src="DomanMahjongAI/images/icon.png" width="120" alt="Doman Mahjong Solver icon">
 </p>
 
 <h1 align="center">Doman Mahjong Solver</h1>
 
 <p align="center">
-  A helper for Doman Mahjong at the Gold Saucer.<br>
-  Get move hints while you play, or let it play for you.
+  A helper for <b>Doman Mahjong</b> at the Gold Saucer.<br>
+  Hints while you play — or let it play for you.
+</p>
+
+<p align="center">
+  <a href="https://github.com/XeldarAlz/FFXIV-DomanMahjongSolver/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/XeldarAlz/FFXIV-DomanMahjongSolver/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/XeldarAlz/FFXIV-DomanMahjongSolver/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/XeldarAlz/FFXIV-DomanMahjongSolver?label=release&color=blue"></a>
+  <img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-green">
+  <img alt="Platform" src="https://img.shields.io/badge/platform-FFXIV%20%7C%20Dalamud-orange">
 </p>
 
 ---
 
-## What this does
+## What it does
 
-You open a Doman Mahjong table. A small window shows up that watches your hand and tells you the best tile to discard and why. That's the default.
+You sit at a mahjong table. A small window shows up, watches your hand, and suggests the best tile to discard and why. Three modes, one click each:
 
-If you want, you can switch it to **auto-play** — it'll click for you, with natural pacing that looks like a person thinking. Flip it back to hints, or turn it off entirely, whenever you want.
-
-That's it. Three buttons: **Off / Hints / Auto-play**.
+- **Off** — plugin sleeps.
+- **Hints** — shows the best discard + top alternatives with a reason. You click every move. *100% safe.*
+- **Auto-play** — plays for you with natural pacing that looks like a person thinking.
 
 ## Install
 
-1. Open in-game: `/xlsettings` → **Experimental** tab.
-2. Find **Custom Plugin Repositories** and paste this URL:
-   ```
-   https://raw.githubusercontent.com/XeldarAlz/FFXIV-DomanMahjongSolver/main/repo/repo.json
-   ```
-3. Tick the checkbox next to it, press **Save and Close**.
-4. Open `/xlplugins`, search **Doman Mahjong Solver**, press **Install**.
-5. Open the plugin (`/mjauto`). First time you run it, accept the short notice.
+In-game: `/xlsettings` → **Experimental** → paste into **Custom Plugin Repositories**:
+
+```
+https://raw.githubusercontent.com/XeldarAlz/FFXIV-DomanMahjongSolver/main/repo/repo.json
+```
+
+Tick the checkbox, save. Then `/xlplugins` → search **Doman Mahjong Solver** → Install. Open with `/mjauto` and accept the short notice.
 
 ## Using it
 
-Open the window with `/mjauto`.
+`/mjauto` opens the main window. At a live table it fills in scores for all four seats, your current hand, the top 3 discard candidates with short reasoning, and the last action the plugin took. Under **Settings**: delay slider (how long it "thinks" before each click) and a developer-tools toggle.
 
-The main window has three big buttons at the top:
+**If the plugin misclicks a call prompt** (rare, but complex multi-chi menus can confuse it):
 
-- **Off** — the plugin watches nothing. It's asleep.
-- **Hints** — shows you the best discard and top alternatives with a short reason. You click every move yourself.
-- **Auto-play** — plays the table for you. Click a mode to switch instantly.
+- Click the right option yourself in-game — the plugin resumes on the next turn.
+- Or from chat: `/mjauto pass <N>` where `<N>` is the button index (0 = leftmost, rightmost is always Pass).
 
-When you're at a table, the bottom half of the window fills in:
+## Safety — read this
 
-- Scores for all four seats.
-- Your current hand.
-- The top 3 discard candidates with a short line of reasoning.
-- The last action the plugin took (so you can check it's keeping up).
+Auto-play uses third-party input automation, which is **against the FFXIV Terms of Service**. Square Enix can and does sanction accounts for it. This plugin is provided as-is. Use **Hints mode** unless you've thought carefully about the risk.
 
-Open **Settings** inside the window for:
-
-- **Delay slider** — how long the plugin "thinks" before each click. Lower = faster.
-- **Developer tools** toggle — ignore unless you're debugging something.
-
-## Stuck on a call prompt?
-
-Sometimes the in-game "pon / chi / pass" window has more than the usual number of buttons (for example, when two different chi combinations are possible). The plugin can misclick in that case.
-
-If that happens:
-
-- Click the correct option yourself in-game. The plugin carries on from the next turn.
-- Or from chat: `/mjauto pass 2` clicks the third button (numbering starts at 0). Try `pass 1`, `pass 2`, `pass 3` until you find the right one. The rightmost button is always "Pass".
-
-## Safety
-
-Auto-play uses features that are **against the FFXIV Terms of Service**. Square Enix has and does sanction accounts for using third-party input automation. This plugin is provided as-is, with no guarantees.
-
-Practical protections built in:
-
-- **Off by default.** Nothing happens until you accept the terms notice, and again until you pick a mode other than Off.
-- **Hints mode is 100% safe.** It never sends clicks to the game. It only reads your screen and talks to you.
-- **Natural pacing.** When auto-play is on, clicks are spaced randomly around 1.2 seconds — you can adjust it.
-- **Kill switch.** Flip back to Off and every click stops, mid-game, on the next frame.
-
-Use hints mode unless you've thought carefully about the risk.
+| | |
+|---|---|
+| **Off by default** | Nothing runs until you accept the notice and pick a non-Off mode. |
+| **Hints are safe** | No clicks ever sent to the game in hint mode. Read-only. |
+| **Natural pacing** | Auto clicks spaced randomly around 1.2s. Adjustable in settings. |
+| **Kill switch** | Flip back to Off — every click stops on the next frame, mid-game. |
 
 ## Problems?
 
-- **"Plugin failed to load"** after installing. You may still have a dev copy loaded from an older install. Open `/xlsettings` → Experimental → Dev Plugin Locations and remove anything that points at a local folder for this plugin. Then reinstall.
-- **Icon doesn't show** in the plugin list. Dalamud caches the repo; click the refresh icon next to the custom repo entry in Settings → Experimental, or restart the game.
-- **Anything else.** Report it at https://github.com/XeldarAlz/FFXIV-DomanMahjongSolver/issues with the text of the error message.
+- **"Plugin failed to load"** — `/xlsettings` → Experimental → Dev Plugin Locations: remove any stale entry pointing at a local folder, then reinstall.
+- **No icon in plugin list** — Dalamud caches the repo. Refresh the custom-repo entry in Experimental, or restart the game.
+- **Anything else** — [open an issue](https://github.com/XeldarAlz/FFXIV-DomanMahjongSolver/issues) with the error text.
 
 ## License
 
-AGPL-3.0-or-later. You're free to read, modify, and redistribute the source, as long as your version stays open-source under the same license.
+**AGPL-3.0-or-later.** Source is open; derivatives must be too.
 
 ---
 
 <details>
-<summary>For developers</summary>
+<summary><b>For developers</b></summary>
 
 ### Build & test
 
@@ -96,30 +78,34 @@ dotnet build DomanMahjongAI.sln
 dotnet test  DomanMahjongAI.sln
 ```
 
-185 tests across an Engine library (tiles, shanten, ukeire, yaku, fu, scoring) and a Policy library (efficiency policy, riichi / call / push-fold evaluators, Bayesian opponent model, ISMCTS with progressive widening, hand simulator, evolutionary weight tuner, Tenhou log parser). Both libraries are Dalamud-free and portable.
+**196 tests** across:
+
+- **Engine** (140 tests) — tiles, shanten, ukeire, yaku, fu, scoring, call-candidate derivation.
+- **Policy** (56 tests) — efficiency policy, riichi / call / push-fold evaluators, Bayesian opponent model, ISMCTS with progressive widening, hand simulator, evolutionary weight tuner, Tenhou log parser.
+
+Engine and Policy are Dalamud-free and portable.
 
 ### Layout
 
 ```
 FFXIV-DomanMahjongSolver/
-├── DomanMahjongAI/       Plugin entry · UI · dispatch · reader
-│   └── images/icon.png   Plugin icon
-├── Engine/               Core mahjong primitives
-├── Policy/               Decision logic · ISMCTS · tuners · Tenhou parser
-├── tests/                129 + 56 tests
+├── DomanMahjongAI/       Plugin entry · UI · dispatch · reader · meld tracker
+├── Engine/               Tiles · shanten · ukeire · yaku · fu · scoring
+├── Policy/               Efficiency · ISMCTS · opponent model · tuners · Tenhou parser
+├── tests/                Engine.Tests · Policy.Tests
 ├── repo/repo.json        Custom Dalamud repo manifest
-├── tools/gen_icon.ps1    Icon regeneration script
-└── .github/workflows/    CI + release automation
+└── .github/workflows/    CI · auto-tag · release
 ```
 
-### Release process
+### Releasing
 
-Bump `Version` in `DomanMahjongAI/DomanMahjongAI.csproj` and `AssemblyVersion` in `repo/repo.json` to match, push a `vX.Y.Z` tag — the release workflow builds and uploads `latest.zip` automatically.
+Bump `<Version>` in `DomanMahjongAI/DomanMahjongAI.csproj` **and** `AssemblyVersion` + `TestingAssemblyVersion` in `repo/repo.json` (all must match). Merge to main → `auto-tag` workflow creates the `vX.Y.Z` tag → `release` workflow builds and uploads `latest.zip`. On first run per version, the release tag sometimes needs a one-time manual re-push (GitHub won't let workflow-pushed tags trigger other workflows).
 
 ### Known outstanding work
 
-- Opcodes for riichi / tsumo / ron / kan dispatch are speculative (currently `HookFailed` at runtime until confirmed with in-game capture).
-- Opponent discard pools, dora indicator, dealer, round, and honba fields are not yet read from the game addon — the opponent model runs on a partial view until those offsets are mapped.
-- Call-prompt button count auto-detection (to always click the rightmost "pass" regardless of how many chi variants are offered) — needs the user to capture a multi-chi event with `/mjauto log on` enabled.
+- Self-initiated riichi / tsumo / ron / ankan use speculative `FireCallback` opcodes — accepts at call prompts work (opcode 11, option 0); discard-time declarations may still fail.
+- Opponent discard pools, dora indicator, dealer, round wind, honba are unread — the opponent model runs on a partial view.
+- Multi-chi variant selection currently always picks the first variant (leftmost button).
+- Tracked open melds are lost on mid-round plugin reload (scorer falls back to tsumogiri until hand stabilizes).
 
 </details>
