@@ -120,7 +120,7 @@ public sealed class MjAutoCommand : IDisposable
                 return;
             }
 
-            if (snap.Hand.Count != 14)
+            if (!snap.Legal.Can(DomanMahjongAI.Engine.ActionFlags.Discard))
             {
                 Plugin.ChatGui.PrintError(
                     $"[MjAuto] hand has {snap.Hand.Count} tiles — not a discard state. Wait for your turn.");

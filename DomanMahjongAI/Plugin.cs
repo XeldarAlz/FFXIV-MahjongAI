@@ -36,6 +36,7 @@ public sealed class Plugin : IDalamudPlugin
     public DebugOverlay DebugOverlay { get; }
     public HandOverlay HandOverlay { get; }
     public AddonEmjReader AddonReader { get; }
+    public MeldTracker MeldTracker { get; } = new();
     public StateAggregator Aggregator { get; }
     public IPolicy Policy { get; private set; }
     public IPolicy EfficiencyPolicyInstance { get; }
@@ -55,7 +56,7 @@ public sealed class Plugin : IDalamudPlugin
         EfficiencyPolicyInstance = new EfficiencyPolicy();
         IsmctsPolicyInstance = new IsmctsPolicy();
         Policy = Configuration.PolicyTier == "mcts" ? IsmctsPolicyInstance : EfficiencyPolicyInstance;
-        EventLogger = new InputEventLogger(AddonReader);
+        EventLogger = new InputEventLogger(AddonReader, MeldTracker);
         AutoPlay = new AutoPlayLoop(this);
 
         MainWindow = new MainWindow(this);
