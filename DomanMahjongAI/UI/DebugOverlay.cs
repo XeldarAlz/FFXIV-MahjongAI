@@ -124,7 +124,7 @@ public sealed class DebugOverlay : Window, IDisposable
 
         var snap = plugin.AddonReader.TryBuildSnapshot();
         bool addonPresent = snap is not null;
-        bool ourTurn = addonPresent && snap!.Hand.Count == 14;
+        bool ourTurn = addonPresent && snap!.Legal.Can(ActionFlags.Discard);
 
         // Auto-discard: snapshot → policy → dispatcher, humanized.
         using (Disable(!ourTurn))
@@ -220,7 +220,7 @@ public sealed class DebugOverlay : Window, IDisposable
     private void TriggerAutoDiscard()
     {
         var snap = plugin.AddonReader.TryBuildSnapshot();
-        if (snap is null || snap.Hand.Count != 14)
+        if (snap is null || !snap.Legal.Can(ActionFlags.Discard))
         {
             lastDispatchMsg = "auto-discard: not our turn";
             return;
@@ -301,7 +301,7 @@ public sealed class DebugOverlay : Window, IDisposable
             $"Scores  self: {snap.Scores[0]}   shimocha: {snap.Scores[1]}   " +
             $"toimen: {snap.Scores[2]}   kamicha: {snap.Scores[3]}");
 
-        if (snap.Hand.Count != 14)
+        if (!snap.Legal.Can(ActionFlags.Discard))
         {
             ImGui.TextDisabled($"waiting for our turn (hand is {snap.Hand.Count} tiles)");
             return;

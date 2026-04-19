@@ -45,4 +45,27 @@ public readonly record struct Meld(
 
     public static Meld ShouMinKan(Tile kind, Tile addedClaimed, int originalFromSeat)
         => new(MeldKind.ShouMinKan, [kind, kind, kind, kind], addedClaimed, originalFromSeat);
+
+    /// <summary>
+    /// Construct an open meld from a <see cref="MeldCandidate"/> that was just accepted.
+    /// For chi, the low tile of the run is computed from claimed + hand tiles (sorted).
+    /// Not valid for AnKan — those come from self-declaration, not call prompts.
+    /// </summary>
+    public static Meld FromAcceptedCandidate(MeldCandidate c) => c.Kind switch
+    {
+        MeldKind.Pon        => Pon(c.ClaimedTile, c.ClaimedTile, c.FromSeat),
+        MeldKind.MinKan     => MinKan(c.ClaimedTile, c.ClaimedTile, c.FromSeat),
+        MeldKind.ShouMinKan => ShouMinKan(c.ClaimedTile, c.ClaimedTile, c.FromSeat),
+        MeldKind.Chi        => ChiFromCandidate(c),
+        _ => throw new ArgumentException($"FromAcceptedCandidate: unsupported meld kind {c.Kind}"),
+    };
+
+    private static Meld ChiFromCandidate(MeldCandidate c)
+    {
+        // Hand-tiles + claimed form a run. Find the lowest tile ID to anchor Meld.Chi.
+        byte lowId = c.ClaimedTile.Id;
+        foreach (var t in c.HandTiles)
+            if (t.Id < lowId) lowId = t.Id;
+        return Chi(new Tile(lowId), c.ClaimedTile, c.FromSeat);
+    }
 }

@@ -1,6 +1,7 @@
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using Dalamud.Hooking;
+using DomanMahjongAI.Engine;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using System;
 using System.Globalization;
@@ -32,6 +33,7 @@ public sealed class InputEventLogger : IDisposable
     private unsafe delegate bool FireCallbackDelegate(AtkUnitBase* addon, uint valueCount, AtkValue* values, byte close);
 
     private readonly AddonEmjReader reader;
+    private readonly MeldTracker meldTracker;
     private readonly string logPath;
     private StreamWriter? writer;
     private bool disposed;
@@ -39,9 +41,10 @@ public sealed class InputEventLogger : IDisposable
 
     public bool Enabled { get; set; }
 
-    public unsafe InputEventLogger(AddonEmjReader reader)
+    public unsafe InputEventLogger(AddonEmjReader reader, MeldTracker meldTracker)
     {
         this.reader = reader;
+        this.meldTracker = meldTracker;
         var dir = Plugin.PluginInterface.GetPluginConfigDirectory();
         Directory.CreateDirectory(dir);
         logPath = Path.Combine(dir, "emj-events.log");
@@ -93,8 +96,41 @@ public sealed class InputEventLogger : IDisposable
 
     private unsafe bool FireCallbackDetour(AtkUnitBase* addon, uint valueCount, AtkValue* values, byte close)
     {
+        // Determine meld-accept intent BEFORE the game processes the click so the Legal
+        // snapshot still reflects the offered candidates. opcode 11 + option 0 = accept
+        // leftmost button on a call prompt (pon / chi / min-kan). For multi-variant chi
+        // we'd want the specific variant picked but the game only ever takes option 0
+        // from us today (matches what DispatchCall() sends).
+        MeldCandidate? acceptedMeld = null;
+        if (addon != null && addon->NameString == AddonName
+            && valueCount == 2
+            && values[0].Type == FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int
+            && values[0].Int == 11
+            && values[1].Type == FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int
+            && values[1].Int == 0)
+        {
+            var preSnap = reader.TryBuildSnapshot();
+            if (preSnap is not null)
+            {
+                if (preSnap.Legal.PonCandidates.Count > 0)
+                    acceptedMeld = preSnap.Legal.PonCandidates[0];
+                else if (preSnap.Legal.ChiCandidates.Count > 0)
+                    acceptedMeld = preSnap.Legal.ChiCandidates[0];
+                else if (preSnap.Legal.KanCandidates.Count > 0)
+                    acceptedMeld = preSnap.Legal.KanCandidates[0];
+            }
+        }
+
         // Always call the original FIRST so game logic is unaffected regardless of logger state.
         bool result = fireCallbackHook!.Original(addon, valueCount, values, close);
+
+        // Record the meld only if the game accepted the click. Covers both plugin
+        // auto-accepts and manual in-game clicks — the tracker needs both.
+        if (acceptedMeld is { } meld && result)
+        {
+            try { meldTracker.Record(Engine.Meld.FromAcceptedCandidate(meld)); }
+            catch (Exception ex) { Plugin.Log.Error($"MeldTracker record error: {ex.Message}"); }
+        }
 
         try
         {

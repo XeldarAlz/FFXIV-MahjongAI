@@ -209,10 +209,10 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.TextUnformatted("Best move");
         ImGui.PopStyleColor();
 
-        if (snap.Hand.Count != 14)
+        if (!snap.Legal.Can(ActionFlags.Discard))
         {
             ImGui.PushStyleColor(ImGuiCol.Text, ColorMuted);
-            ImGui.TextUnformatted($"  waiting for your turn ({snap.Hand.Count}/14 tiles)");
+            ImGui.TextUnformatted($"  waiting for your turn ({snap.Hand.Count} tiles in hand)");
             ImGui.PopStyleColor();
             return;
         }

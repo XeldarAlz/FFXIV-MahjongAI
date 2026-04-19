@@ -58,6 +58,18 @@ public sealed class EfficiencyPolicy : IPolicy
 
         if (legal.Can(ActionFlags.Discard))
         {
+            // Safety net for inconsistent counts: if our tracked melds + closed tiles
+            // don't sum to 14, DiscardScorer would throw. The MeldTracker normally keeps
+            // this consistent, but an un-tracked meld (manual click during plugin reload,
+            // round-end race) can break the invariant. Tsumogiri is the safe out.
+            int totalTiles = state.Hand.Count + state.OurMelds.Count * 3;
+            if (totalTiles != 14 && state.Hand.Count > 0)
+            {
+                var drawn = state.Hand[^1];
+                return ActionChoice.Discard(drawn,
+                    $"tsumogiri fallback — count mismatch (closed={state.Hand.Count}, melds={state.OurMelds.Count})");
+            }
+
             opponentModel.Update(state);
             var scored = DiscardScorer.Score(state, weights, opponentModel: opponentModel);
             if (scored.Length == 0)

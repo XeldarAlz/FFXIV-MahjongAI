@@ -22,6 +22,8 @@ public sealed class AddonEmjReader : IDisposable
 
     private readonly Plugin plugin;
     private bool disposed;
+    private int lastLoggedCallPromptState = -1;
+    private int lastLoggedMeldHandCount = -1;
 
     public AddonEmjObservation LastObservation { get; private set; } = AddonEmjObservation.Empty;
 
@@ -162,16 +164,22 @@ public sealed class AddonEmjReader : IDisposable
         bool plausibleScores = scores.All(s => s is >= 0 and <= 200000);
         if (!plausibleScores) return null;
 
-        // Read wall count from AtkValues[1] when state code in [0] == 5 (post-draw idle).
-        // Otherwise keep the default (snapshot consumers should tolerate stale).
+        // State code and wall count from AtkValues. AtkValues[0] holds the state code
+        // (30=our turn, 15=call prompt, 5=post-draw idle, etc.). AtkValues[1] holds wall
+        // count when state == 5.
+        int stateCode = -1;
         int wallRemaining = StateSnapshot.Empty.WallRemaining;
         var atkValues = unit->AtkValues;
-        if (atkValues != null && unit->AtkValuesCount >= 2
-            && atkValues[0].Type == FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int
-            && atkValues[0].Int == 5)
+        int atkCount = unit->AtkValuesCount;
+        if (atkValues != null && atkCount > 0
+            && atkValues[0].Type == FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int)
         {
-            int reported = atkValues[1].Int;
-            if (reported is > 0 and <= 136) wallRemaining = reported;
+            stateCode = atkValues[0].Int;
+            if (stateCode == 5 && atkCount >= 2)
+            {
+                int reported = atkValues[1].Int;
+                if (reported is > 0 and <= 136) wallRemaining = reported;
+            }
         }
 
         // Assemble the snapshot. Seat-relative: self is always index 0 here.
@@ -182,17 +190,396 @@ public sealed class AddonEmjReader : IDisposable
         for (int i = 0; i < 4; i++)
             seats[i] = new SeatView([], [], [], false, -1, false, false);
 
-        var legal = hand.Count == 14
-            ? new LegalActions(ActionFlags.Discard, [], [], [], [])
-            : LegalActions.None;
+        var legal = BuildLegalActions(stateCode, hand, atkValues, atkCount);
+
+        MaybeLogCallPromptTransition(addr, stateCode, atkValues, atkCount, hand, legal);
+        MaybeLogMeldTransition(addr, stateCode, hand);
+
+        // Resolve our own open melds. The Emj addon's on-disk meld struct is still
+        // un-mapped; instead the MeldTracker captures each meld when the auto-play
+        // (or hooked manual click) accepts a call prompt. Reset the tracker when the
+        // closed-hand count proves a new round has started (≥ 13 = no melds).
+        plugin.MeldTracker.ResetIfRoundEnded(hand.Count);
+        var ourMelds = plugin.MeldTracker.Melds;
 
         return StateSnapshot.Empty with
         {
             Hand = hand,
+            OurMelds = ourMelds,
             Scores = scores,
             Seats = seats,
             WallRemaining = wallRemaining,
             Legal = legal,
         };
+    }
+
+    /// <summary>
+    /// Diagnostic dump when a real call prompt is detected. State 15 is overloaded —
+    /// it's also used for the "please wait for other players" idle screen — so we gate on
+    /// the presence of <see cref="LegalActions"/> flags beyond plain <see cref="ActionFlags.Pass"/>,
+    /// which means the button-label scan actually found one of Pon/Chi/Kan/Ron. Each
+    /// entry captures the full AtkValues plus a chunk of Emj addon memory so we can
+    /// diff across prompts and pin the claimed-tile offset (needed to unblock chi
+    /// auto-accept).
+    ///
+    /// <para>Gated by <c>/mjauto log on</c> so it's off by default.</para>
+    /// </summary>
+    private unsafe void MaybeLogCallPromptTransition(
+        nint addonBase, int stateCode, AtkValue* atkValues, int atkCount,
+        IReadOnlyList<Tile> hand, LegalActions legal)
+    {
+        const ActionFlags promptFlags =
+            ActionFlags.Pon | ActionFlags.Chi | ActionFlags.MinKan |
+            ActionFlags.ShouMinKan | ActionFlags.Ron |
+            ActionFlags.Riichi | ActionFlags.Tsumo;
+
+        bool isPrompt = stateCode == 15 && (legal.Flags & promptFlags) != 0;
+        if (!isPrompt)
+        {
+            // Reset so we re-log the next genuine transition.
+            lastLoggedCallPromptState = -1;
+            return;
+        }
+        if (lastLoggedCallPromptState == 15) return;
+        lastLoggedCallPromptState = 15;
+
+        if (!plugin.EventLogger.Enabled) return;
+        if (atkValues == null) return;
+
+        try
+        {
+            var dir = Plugin.PluginInterface.GetPluginConfigDirectory();
+            System.IO.Directory.CreateDirectory(dir);
+            var path = System.IO.Path.Combine(dir, "emj-call-prompts.log");
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"# {DateTime.UtcNow:o}  state=15  atkCount={atkCount}");
+            sb.Append($"hand={Tiles.Render(hand)}  flags={legal.Flags}  ");
+            sb.AppendLine(
+                $"pon={legal.PonCandidates.Count} chi={legal.ChiCandidates.Count} kan={legal.KanCandidates.Count}");
+
+            for (int i = 0; i < atkCount && i < 64; i++)
+            {
+                var v = atkValues[i];
+                sb.Append($"  [{i,3}] {v.Type,-14} ");
+                switch (v.Type)
+                {
+                    case FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int:
+                        sb.Append($"Int={v.Int}");
+                        break;
+                    case FFXIVClientStructs.FFXIV.Component.GUI.ValueType.UInt:
+                        sb.Append($"UInt={v.UInt} (0x{v.UInt:X})");
+                        break;
+                    case FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Bool:
+                        sb.Append($"Bool={v.Byte != 0}");
+                        break;
+                    case FFXIVClientStructs.FFXIV.Component.GUI.ValueType.String:
+                    case FFXIVClientStructs.FFXIV.Component.GUI.ValueType.String8:
+                    case FFXIVClientStructs.FFXIV.Component.GUI.ValueType.ManagedString:
+                        var s = v.String.Value != null
+                            ? System.Text.Encoding.UTF8.GetString(v.String)
+                            : "(null)";
+                        sb.Append($"String=\"{s}\"");
+                        break;
+                    default:
+                        sb.Append($"raw=0x{v.UInt:X}");
+                        break;
+                }
+                sb.AppendLine();
+            }
+
+            DumpMemoryRegion(sb, addonBase);
+            sb.AppendLine();
+
+            System.IO.File.AppendAllText(path, sb.ToString());
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Error($"call-prompt diagnostic log error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Meld-discovery diagnostic. Fires once per distinct closed-hand count below 14
+    /// — i.e., each time the player opens a new meld in the current round. Dumps the
+    /// big addon-memory region [0x0500..0x1400] (covers per-seat score/discard/meld
+    /// blocks plus the area right after self hand at +0xDB8) plus the first 0x1000
+    /// bytes of the Emj game-state module (a separate structure from the addon;
+    /// dereferenced from module_base + 0x029E1400). One of these two regions almost
+    /// certainly contains the open-meld records; cross-diffing captures with different
+    /// meld counts pins the exact offset.
+    ///
+    /// <para>Gated by <c>/mjauto log on</c>. Logs to <c>emj-meld-captures.log</c>.</para>
+    /// </summary>
+    private unsafe void MaybeLogMeldTransition(
+        nint addonBase, int stateCode, IReadOnlyList<Tile> hand)
+    {
+        // Only interesting when we've called something (closed hand < 13 proves open melds).
+        if (hand.Count >= 13 || hand.Count <= 0)
+        {
+            lastLoggedMeldHandCount = -1;
+            return;
+        }
+        if (hand.Count == lastLoggedMeldHandCount) return;
+        lastLoggedMeldHandCount = hand.Count;
+
+        if (!plugin.EventLogger.Enabled) return;
+
+        try
+        {
+            var dir = Plugin.PluginInterface.GetPluginConfigDirectory();
+            System.IO.Directory.CreateDirectory(dir);
+            var path = System.IO.Path.Combine(dir, "emj-meld-captures.log");
+
+            var sb = new System.Text.StringBuilder();
+            int inferredMelds = (14 - hand.Count) / 3;
+            int remainder = (14 - hand.Count) % 3;
+            sb.AppendLine(
+                $"# {DateTime.UtcNow:o}  state={stateCode}  closedHand={hand.Count}  " +
+                $"inferredMelds={inferredMelds}{(remainder != 0 ? " (off-sync)" : "")}  " +
+                $"hand={Tiles.Render(hand)}");
+
+            byte* basePtr = (byte*)addonBase;
+            sb.AppendLine("  -- addon @ +0x0500..+0x3000 (per-seat blocks + post-hand area + extended) --");
+            for (int off = 0x0500; off < 0x3000; off += 16)
+                AppendHexRow(sb, basePtr, off, 16);
+
+            // AgentEmj — the UI-agent struct, separate from the AtkUnitBase. Scan with
+            // the FFXIVClientStructs-backed accessor (this path worked in the existing
+            // /mjauto agent command; the module-pointer-slot path in earlier captures
+            // was zeroed). If melds aren't in the addon, they're almost certainly here.
+            var agentModule = FFXIVClientStructs.FFXIV.Client.UI.Agent.AgentModule.Instance();
+            if (agentModule != null)
+            {
+                var agent = agentModule->GetAgentByInternalId(
+                    (FFXIVClientStructs.FFXIV.Client.UI.Agent.AgentId)5);
+                if (agent != null)
+                {
+                    sb.AppendLine($"  -- AgentEmj @ 0x{(nint)agent:X} +0x0000..+0x2000 --");
+                    byte* agentPtr = (byte*)agent;
+                    for (int off = 0; off < 0x2000; off += 16)
+                        AppendHexRow(sb, agentPtr, off, 16);
+                }
+                else
+                {
+                    sb.AppendLine("  -- AgentEmj unavailable (GetAgentByInternalId returned null) --");
+                }
+            }
+            else
+            {
+                sb.AppendLine("  -- AgentModule unavailable --");
+            }
+
+            sb.AppendLine();
+            System.IO.File.AppendAllText(path, sb.ToString());
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Error($"meld-capture diagnostic log error: {ex.Message}");
+        }
+    }
+
+    private static unsafe void AppendHexRow(
+        System.Text.StringBuilder sb, byte* basePtr, int offset, int length)
+    {
+        sb.Append($"  +0x{offset:X4}: ");
+        for (int i = 0; i < length; i++)
+        {
+            sb.Append($"{basePtr[offset + i]:X2} ");
+            if (i == 7) sb.Append(' ');
+        }
+        sb.Append(" |");
+        for (int i = 0; i < length; i++)
+        {
+            byte b = basePtr[offset + i];
+            sb.Append(b >= 32 && b < 127 ? (char)b : '.');
+        }
+        sb.AppendLine("|");
+    }
+
+    /// <summary>
+    /// Dump two regions of Emj addon memory where the claimed tile likely lives:
+    /// +0x0100..+0x0500 (header / prompt payload area, before the score region)
+    /// and +0x0E00..+0x1200 (just past the hand tiles at +0xDB8, likely opponent
+    /// discard-pool territory). Tile slots encode as 4 bytes <c>[tile_id+9, 0x29, 0x01, 0x00]</c>
+    /// — scan for that pattern in the hex to find tile fields.
+    /// </summary>
+    private static unsafe void DumpMemoryRegion(System.Text.StringBuilder sb, nint addonBase)
+    {
+        byte* basePtr = (byte*)addonBase;
+        DumpRange(sb, basePtr, 0x0100, 0x0400);
+        DumpRange(sb, basePtr, 0x0E00, 0x0400);
+    }
+
+    private static unsafe void DumpRange(System.Text.StringBuilder sb, byte* basePtr, int offset, int length)
+    {
+        sb.AppendLine($"  -- memory @ +0x{offset:X4}..+0x{offset + length:X4} --");
+        for (int row = 0; row < length; row += 16)
+        {
+            sb.Append($"  +0x{offset + row:X4}: ");
+            for (int i = 0; i < 16; i++)
+            {
+                sb.Append($"{basePtr[offset + row + i]:X2} ");
+                if (i == 7) sb.Append(' ');
+            }
+            sb.Append(" |");
+            for (int i = 0; i < 16; i++)
+            {
+                byte b = basePtr[offset + row + i];
+                sb.Append(b >= 32 && b < 127 ? (char)b : '.');
+            }
+            sb.AppendLine("|");
+        }
+    }
+
+    /// <summary>
+    /// Build the LegalActions record from the current state code. Three cases today:
+    /// <list type="bullet">
+    ///   <item>State 15 (call prompt): scan AtkValues strings for "Pon"/"Chi"/"Kan"/"Ron"
+    ///       button labels and derive candidates from our hand. The game only offers calls
+    ///       for tiles we can actually claim, so we can deduce the claimed tile for
+    ///       unambiguous pon/kan cases (unique pair/triplet in hand). Chi is skipped
+    ///       until we map the claimed-tile offset (multiple valid sequences per hand make
+    ///       it genuinely ambiguous).</item>
+    ///   <item>Hand count 14: plain discard.</item>
+    ///   <item>Otherwise: no actions.</item>
+    /// </list>
+    /// </summary>
+    private static unsafe LegalActions BuildLegalActions(
+        int stateCode, List<Tile> hand, AtkValue* atkValues, int atkCount)
+    {
+        if (stateCode == 15 && atkValues != null)
+            return BuildCallPromptLegal(hand, atkValues, atkCount);
+
+        // "Our turn to discard" = 14 tiles with 0 melds, 11 with 1 meld, 8 with 2, etc. —
+        // all satisfy hand % 3 == 2. Hardcoding 14 skipped every post-call discard.
+        if (hand.Count > 0 && hand.Count % 3 == 2)
+            return new LegalActions(ActionFlags.Discard, [], [], [], []);
+
+        return LegalActions.None;
+    }
+
+    private static unsafe LegalActions BuildCallPromptLegal(
+        List<Tile> hand, AtkValue* atkValues, int atkCount)
+    {
+        // Scan the first ~20 AtkValues for button labels. The capture at state 15 shows
+        // labels at indices 6-8 ("Pass","Pon","Pass" for a pon+pass prompt), but slot
+        // assignment varies by prompt shape; scan a wider range for robustness. Exact
+        // match only — "Pon!" etc. are status indicators shown elsewhere.
+        bool offersPon = false, offersChi = false, offersKan = false;
+        bool offersRon = false, offersRiichi = false, offersTsumo = false;
+        int scanEnd = Math.Min(atkCount, 20);
+        for (int i = 0; i < scanEnd; i++)
+        {
+            var v = atkValues[i];
+            if (v.Type != FFXIVClientStructs.FFXIV.Component.GUI.ValueType.String &&
+                v.Type != FFXIVClientStructs.FFXIV.Component.GUI.ValueType.String8 &&
+                v.Type != FFXIVClientStructs.FFXIV.Component.GUI.ValueType.ManagedString)
+                continue;
+            if (v.String.Value == null) continue;
+            var s = System.Text.Encoding.UTF8.GetString(v.String);
+            switch (s)
+            {
+                case "Pon": offersPon = true; break;
+                case "Chi": offersChi = true; break;
+                case "Kan": offersKan = true; break;
+                case "Ron": offersRon = true; break;
+                case "Riichi": offersRiichi = true; break;
+                case "Tsumo": offersTsumo = true; break;
+            }
+        }
+
+        // Without any offered action it's just a pass-through — let the caller pass.
+        if (!offersPon && !offersChi && !offersKan && !offersRon
+            && !offersRiichi && !offersTsumo)
+            return new LegalActions(ActionFlags.Pass, [], [], [], []);
+
+        ActionFlags flags = ActionFlags.Pass;
+        var pons = new List<MeldCandidate>();
+        var chis = new List<MeldCandidate>();
+        var kans = new List<MeldCandidate>();
+
+        // Ron / Riichi / Tsumo: no candidate derivation — flag-only. The policy's
+        // existing top-of-Choose branches handle Tsumo/Ron declarations; Riichi is
+        // surfaced so AutoPlayLoop can accept the confirmation by clicking option 0.
+        if (offersRon) flags |= ActionFlags.Ron;
+        if (offersRiichi) flags |= ActionFlags.Riichi;
+        if (offersTsumo) flags |= ActionFlags.Tsumo;
+
+        // Count hand tiles once; used for pon/kan deduction.
+        var counts = new int[Tile.Count34];
+        foreach (var t in hand) counts[t.Id]++;
+
+        // Pon: flag is set whenever the game shows the button (so AutoPlayLoop knows to
+        // respond to the prompt — accept or explicitly pass). Candidate is only emitted
+        // when the pair is unambiguous; without a candidate, CallEvaluator returns
+        // "no candidates offered" and the policy picks Pass, which correctly dismisses
+        // the popup via DispatchCallOption(passIndex).
+        if (offersPon)
+        {
+            flags |= ActionFlags.Pon;
+            int pairCount = 0;
+            int pairId = -1;
+            for (int id = 0; id < Tile.Count34; id++)
+            {
+                if (counts[id] >= 2) { pairCount++; pairId = id; }
+            }
+            if (pairCount == 1)
+            {
+                var claimed = Tile.FromId(pairId);
+                var derived = CallCandidateDeriver.Derive(hand, claimed, fromSeat: 1);
+                pons.AddRange(derived.Pon);
+            }
+        }
+
+        // MinKan: flag set whenever offered so AutoPlayLoop resolves the prompt. Candidate
+        // is emitted only when triplet is unambiguous AND pon isn't on the same button row
+        // (Pon | Kan | Pass) — DispatchCall hardcodes option 0 = Pon, so emitting a Kan
+        // candidate alongside pon would risk misfiring. When no candidate is emitted, the
+        // policy passes (correct default).
+        if (offersKan)
+        {
+            flags |= ActionFlags.MinKan;
+            if (!offersPon)
+            {
+                int tripCount = 0;
+                int tripId = -1;
+                for (int id = 0; id < Tile.Count34; id++)
+                {
+                    if (counts[id] >= 3) { tripCount++; tripId = id; }
+                }
+                if (tripCount == 1)
+                {
+                    var claimed = Tile.FromId(tripId);
+                    var derived = CallCandidateDeriver.Derive(hand, claimed, fromSeat: 1);
+                    kans.AddRange(derived.Kan);
+                }
+            }
+        }
+
+        // Chi: claimed tile is at AtkValues[19], encoded as texture_id = tile_id + 76041.
+        // Verified across two live chi prompts:
+        //   - claim 1m ⇄ AtkValues[19]=76041 (hand 1234m89s45z → {1m,2m,3m})
+        //   - claim 7s ⇄ AtkValues[19]=76065 (hand 2347m257p2567s57z → {5s,6s,7s})
+        // The pon layout reuses [19] for something else (a hand tile), so we only read it
+        // when the chi button is offered.
+        if (offersChi)
+        {
+            flags |= ActionFlags.Chi;
+            if (atkCount > 19 &&
+                atkValues[19].Type == FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int)
+            {
+                int tex = atkValues[19].Int;
+                int tileId = tex - 76041;
+                if (tileId is >= 0 and < Tile.Count34)
+                {
+                    var claimed = Tile.FromId(tileId);
+                    var derived = CallCandidateDeriver.Derive(hand, claimed, fromSeat: 3);
+                    chis.AddRange(derived.Chi);
+                }
+            }
+        }
+
+        return new LegalActions(flags, [], pons, chis, kans);
     }
 }
