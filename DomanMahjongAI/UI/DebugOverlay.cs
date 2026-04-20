@@ -2,6 +2,7 @@ using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using DomanMahjongAI.Actions;
 using DomanMahjongAI.Engine;
+using DomanMahjongAI.GameState;
 using DomanMahjongAI.Policy;
 using DomanMahjongAI.Policy.Efficiency;
 using System;
@@ -89,7 +90,7 @@ public sealed class DebugOverlay : Window, IDisposable
 
         // Live AtkValues[0..2] readout.
         string atkLine = "(addon not found)";
-        var ptr = Plugin.GameGui.GetAddonByName("Emj");
+        var ptr = Plugin.GameGui.GetAddonByName(AddonEmjReader.AddonName);
         if (ptr.Address != nint.Zero)
         {
             var unit = (FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase*)ptr.Address;

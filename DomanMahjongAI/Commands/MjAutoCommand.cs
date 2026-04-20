@@ -1,4 +1,5 @@
 using Dalamud.Game.Command;
+using DomanMahjongAI.GameState;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using System;
@@ -392,7 +393,7 @@ public sealed class MjAutoCommand : IDisposable
 
     private unsafe void DumpAtkValues()
     {
-        var ptr = Plugin.GameGui.GetAddonByName("Emj");
+        var ptr = Plugin.GameGui.GetAddonByName(AddonEmjReader.AddonName);
         if (ptr.Address == nint.Zero)
         {
             Plugin.ChatGui.PrintError("[MjAuto] Emj addon not found.");
@@ -466,7 +467,7 @@ public sealed class MjAutoCommand : IDisposable
         }
         length = Math.Clamp(length, 1, 0x2000);
 
-        var ptr = Plugin.GameGui.GetAddonByName("Emj");
+        var ptr = Plugin.GameGui.GetAddonByName(AddonEmjReader.AddonName);
         nint addr = ptr.Address;
         if (addr == nint.Zero)
         {

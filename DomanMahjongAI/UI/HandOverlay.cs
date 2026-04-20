@@ -1,6 +1,7 @@
 using Dalamud.Bindings.ImGui;
 using DomanMahjongAI.Actions;
 using DomanMahjongAI.Engine;
+using DomanMahjongAI.GameState;
 using DomanMahjongAI.Policy;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using System;
@@ -60,7 +61,7 @@ public sealed class HandOverlay : IDisposable
         // Auto-play mode doesn't need a visual cue since the plugin clicks for you.
         if (!cfg.AutomationArmed || !cfg.SuggestionOnly) return;
 
-        var ptr = Plugin.GameGui.GetAddonByName("Emj");
+        var ptr = Plugin.GameGui.GetAddonByName(AddonEmjReader.AddonName);
         if (ptr.Address == nint.Zero) return;
         var unit = (AtkUnitBase*)ptr.Address;
         if (!unit->IsVisible) return;

@@ -1,4 +1,5 @@
 using DomanMahjongAI.Engine;
+using DomanMahjongAI.GameState;
 using DomanMahjongAI.Policy;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Component.GUI;
@@ -151,7 +152,7 @@ public sealed class AutoPlayLoop : IDisposable
 
     private unsafe int ReadStateCode()
     {
-        var ptr = Plugin.GameGui.GetAddonByName("Emj");
+        var ptr = Plugin.GameGui.GetAddonByName(AddonEmjReader.AddonName);
         nint addr = ptr.Address;
         if (addr == nint.Zero) return -1;
         var unit = (AtkUnitBase*)addr;
