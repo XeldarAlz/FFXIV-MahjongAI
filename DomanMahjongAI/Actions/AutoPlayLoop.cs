@@ -32,11 +32,20 @@ public sealed class AutoPlayLoop : IDisposable
     /// permanently stuck loop.</summary>
     private const double ActionPendingTimeoutSeconds = 10.0;
 
+    /// <summary>After a call-prompt FireCallback returns false (HookFailed) we treat it
+    /// as a false-positive prompt — state==15 with banner text in AtkValues but no real
+    /// modal awaiting input — and skip the call-prompt path for this long. Discards
+    /// keep firing normally; a real prompt arriving mid-backoff is missed for at most
+    /// this window, which is well inside human reaction time.</summary>
+    private const double CallPromptFailBackoffSeconds = 5.0;
+
     private readonly Plugin plugin;
     private bool actionPending;
     private DateTime actionPendingStartedAt = DateTime.MinValue;
     private DateTime lastActionAt = DateTime.MinValue;
     private (int State, int Hand)? lastDispatchedContext;
+    private DateTime callPromptBackoffUntil = DateTime.MinValue;
+    private (int State, int Hand)? lastLoggedFailContext;
     private bool disposed;
 
     /// <summary>Short human-readable description of the most recent auto action. For the overlay.</summary>
@@ -120,6 +129,12 @@ public sealed class AutoPlayLoop : IDisposable
             return;
         }
 
+        // Call-prompt cooldown after a HookFailed: skip the call-prompt path without
+        // pinning context, so a real discard turn (state != 15) still fires as soon
+        // as the game transitions.
+        if (isCallPrompt && DateTime.UtcNow < callPromptBackoffUntil)
+            return;
+
         var context = (state, hand);
         bool sameContextAsLast = lastDispatchedContext == context;
         double sinceMs = (DateTime.UtcNow - lastActionAt).TotalMilliseconds;
@@ -130,7 +145,7 @@ public sealed class AutoPlayLoop : IDisposable
         }
 
         lastDispatchedContext = context;
-        if (isCallPrompt) ScheduleCallDecision();
+        if (isCallPrompt) ScheduleCallDecision(context);
         else ScheduleDiscard();
     }
 
@@ -223,7 +238,7 @@ public sealed class AutoPlayLoop : IDisposable
         }, delay);
     }
 
-    private void ScheduleCallDecision()
+    private void ScheduleCallDecision((int State, int Hand) context)
     {
         actionPending = true;
         actionPendingStartedAt = DateTime.UtcNow;
@@ -289,7 +304,27 @@ public sealed class AutoPlayLoop : IDisposable
                     result = plugin.Dispatcher.DispatchCallOption(passIndex);
                     LastActionDescription = $"auto-pass[opt={passIndex}] → {result}";
                 }
-                Plugin.Log.Info($"[AutoPlayLoop] call-prompt dispatch: {LastActionDescription}");
+
+                if (result == InputDispatcher.DispatchResult.HookFailed)
+                {
+                    // Likely a false-positive prompt (state==15 with Pon/Riichi/etc.
+                    // strings in AtkValues but no modal awaiting input). Back off so
+                    // we don't spam FireCallback or the log; discards still fire.
+                    callPromptBackoffUntil =
+                        DateTime.UtcNow.AddSeconds(CallPromptFailBackoffSeconds);
+                    if (lastLoggedFailContext != context)
+                    {
+                        Plugin.Log.Info(
+                            $"[AutoPlayLoop] call-prompt dispatch: {LastActionDescription}" +
+                            $" — backing off {CallPromptFailBackoffSeconds:0.#}s");
+                        lastLoggedFailContext = context;
+                    }
+                }
+                else
+                {
+                    Plugin.Log.Info($"[AutoPlayLoop] call-prompt dispatch: {LastActionDescription}");
+                    lastLoggedFailContext = null;
+                }
             }
             catch (Exception ex)
             {
