@@ -9,7 +9,7 @@ namespace DomanMahjongAI.Commands;
 public sealed class MjAutoCommand : IDisposable
 {
     private const string Primary = "/mjauto";
-    private const string HelpText = "Open Doman Mahjong Solver. Subcommands: on | off | open | debug | policy <eff|mcts> | pass <N> | dump | addons [filter] | dumpmem [offset] [length] | atkvalues | agent [length] | emj [length] | log <on|off> | testdiscard <slot> | autodiscard";
+    private const string HelpText = "Open Doman Mahjong Solver. Subcommands: on | off | open | debug | policy <eff|mcts> | pass <N> | dump | addons [filter] | dumpmem [offset] [length] | atkvalues | agent [length] | emj [length] | log <on|off> | capture <label> | testdiscard <slot> | autodiscard";
     // Note: removed /mjauto scan and /mjauto followptr — both dereferenced untrusted pointers and crashed the client.
 
     private readonly Plugin plugin;
@@ -88,6 +88,10 @@ public sealed class MjAutoCommand : IDisposable
 
             case "log":
                 HandleLog(rest);
+                break;
+
+            case "capture":
+                HandleCapture(rest);
                 break;
 
             case "testdiscard":
@@ -185,6 +189,52 @@ public sealed class MjAutoCommand : IDisposable
             var result = plugin.Dispatcher.DispatchDiscard(slot);
             Plugin.ChatGui.Print($"[MjAuto] testdiscard slot={slot} result={result}");
         });
+    }
+
+    private void HandleCapture(string arg)
+    {
+        var label = arg.Trim();
+        if (string.IsNullOrEmpty(label))
+        {
+            var pending = plugin.EventLogger.PendingCaptureLabel;
+            if (pending != null)
+            {
+                plugin.EventLogger.DisarmCapture();
+                Plugin.ChatGui.Print($"[MjAuto] capture disarmed (was: {pending}).");
+            }
+            else
+            {
+                Plugin.ChatGui.Print(
+                    $"[MjAuto] Usage: /mjauto capture <label>. Run again with no label to disarm. " +
+                    $"File: {plugin.EventLogger.CaptureLogPath}");
+            }
+            return;
+        }
+
+        // Sanitize: file gets greppable, but the label appears verbatim in the
+        // capture entry header so reject anything weird.
+        foreach (var c in label)
+        {
+            if (!char.IsLetterOrDigit(c) && c != '-' && c != '_')
+            {
+                Plugin.ChatGui.PrintError(
+                    $"[MjAuto] capture label must be [a-zA-Z0-9_-] only — got '{label}'.");
+                return;
+            }
+        }
+
+        if (plugin.Configuration.AutomationArmed)
+        {
+            Plugin.ChatGui.PrintError(
+                "[MjAuto] auto-play is ON — its dispatches would race your manual click. " +
+                "Run `/mjauto off` first, then re-arm capture.");
+            return;
+        }
+
+        plugin.EventLogger.ArmCapture(label);
+        Plugin.ChatGui.Print(
+            $"[MjAuto] capture armed: '{label}'. Click the action in-game once. " +
+            $"Auto-disarms after one click or 60s. File: {plugin.EventLogger.CaptureLogPath}");
     }
 
     private void HandleLog(string arg)

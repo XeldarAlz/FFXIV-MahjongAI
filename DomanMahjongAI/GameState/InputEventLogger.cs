@@ -32,14 +32,26 @@ public sealed class InputEventLogger : IDisposable
     private const string FireCallbackSig = "E8 ?? ?? ?? ?? 0F B6 E8 8B 44 24 20";
     private unsafe delegate bool FireCallbackDelegate(AtkUnitBase* addon, uint valueCount, AtkValue* values, byte close);
 
+    private const double CaptureTimeoutSeconds = 60.0;
+
     private readonly AddonEmjReader reader;
     private readonly MeldTracker meldTracker;
     private readonly string logPath;
+    private readonly string capturePath;
     private StreamWriter? writer;
     private bool disposed;
     private unsafe Hook<FireCallbackDelegate>? fireCallbackHook;
 
+    /// <summary>Label of the next FireCallback to record verbatim into the dedicated
+    /// capture log, or null if not armed. Cleared after one capture or on timeout.
+    /// Used to RE the click payload for actions whose opcodes we don't yet know
+    /// (riichi, tsumo, ron, ankan, shouminkan).</summary>
+    public string? PendingCaptureLabel { get; private set; }
+    private DateTime captureArmedAt;
+
     public bool Enabled { get; set; }
+
+    public string CaptureLogPath => capturePath;
 
     public unsafe InputEventLogger(AddonEmjReader reader, MeldTracker meldTracker)
     {
@@ -48,6 +60,7 @@ public sealed class InputEventLogger : IDisposable
         var dir = Plugin.PluginInterface.GetPluginConfigDirectory();
         Directory.CreateDirectory(dir);
         logPath = Path.Combine(dir, "emj-events.log");
+        capturePath = Path.Combine(dir, "emj-captures.log");
 
         Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostReceiveEvent, AddonName, OnReceiveEvent);
 
@@ -78,6 +91,25 @@ public sealed class InputEventLogger : IDisposable
     }
 
     public string LogPath => logPath;
+
+    /// <summary>
+    /// Arm a one-shot capture: the next FireCallback fired against the Emj addon will
+    /// be appended verbatim to <c>emj-captures.log</c> under <paramref name="label"/>.
+    /// Auto-clears after one capture or after <see cref="CaptureTimeoutSeconds"/>
+    /// seconds with no click — so a stray UI interaction days later won't be tagged.
+    /// Re-arming overwrites any pending label.
+    /// </summary>
+    public void ArmCapture(string label)
+    {
+        PendingCaptureLabel = label;
+        captureArmedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Cancel a pending capture without recording anything.</summary>
+    public void DisarmCapture()
+    {
+        PendingCaptureLabel = null;
+    }
 
     public void OpenLog()
     {
@@ -181,6 +213,32 @@ public sealed class InputEventLogger : IDisposable
             Plugin.Log.Error($"FireCallback log error: {ex.Message}");
         }
 
+        // One-shot capture: dump the full FireCallback payload + addon AtkValues
+        // context to a dedicated file under a human-supplied label, then disarm.
+        // Used for opcode RE — the user runs `/mjauto capture riichi`, then clicks
+        // the riichi button in-game, and we get a single labeled entry to inspect.
+        if (PendingCaptureLabel is { } label
+            && addon != null && addon->NameString == AddonName)
+        {
+            try
+            {
+                if ((DateTime.UtcNow - captureArmedAt).TotalSeconds > CaptureTimeoutSeconds)
+                {
+                    PendingCaptureLabel = null;
+                }
+                else
+                {
+                    WriteCaptureEntry(label, addon, valueCount, values, close, result);
+                    PendingCaptureLabel = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Error($"FireCallback capture error: {ex.Message}");
+                PendingCaptureLabel = null;
+            }
+        }
+
         return result;
     }
 
@@ -236,5 +294,72 @@ public sealed class InputEventLogger : IDisposable
         }
 
         writer?.WriteLine(sb.ToString());
+    }
+
+    /// <summary>
+    /// Append a single annotated capture entry. Records every FireCallback arg
+    /// (so the click payload can be replayed) plus the addon's full AtkValues
+    /// snapshot (so we know which prompt/state was active when the click fired).
+    /// File is grep-friendly: each entry starts with a `# label=...` header.
+    /// </summary>
+    private unsafe void WriteCaptureEntry(
+        string label, AtkUnitBase* addon, uint valueCount, AtkValue* values,
+        byte close, bool result)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine(
+            $"# {DateTime.UtcNow:o}  label={label}  result={result}  close={(close != 0)}  " +
+            $"valueCount={valueCount}");
+
+        var snap = reader.TryBuildSnapshot();
+        if (snap is not null && snap.Hand.Count > 0)
+            sb.AppendLine($"hand={Engine.Tiles.Render(snap.Hand)}");
+
+        sb.AppendLine($"fire_args (count={valueCount}):");
+        if (values != null)
+        {
+            uint cap = valueCount > 32 ? 32 : valueCount;
+            for (uint i = 0; i < cap; i++)
+                sb.AppendLine($"  [{i,3}] {FormatValue(values[i])}");
+            if (valueCount > cap) sb.AppendLine($"  ... +{valueCount - cap} more");
+        }
+
+        var atk = addon->AtkValues;
+        int atkCount = addon->AtkValuesCount;
+        sb.AppendLine($"addon_atkvalues (count={atkCount}):");
+        if (atk != null)
+        {
+            int cap = Math.Min(atkCount, 64);
+            for (int i = 0; i < cap; i++)
+                sb.AppendLine($"  [{i,3}] {FormatValue(atk[i])}");
+            if (atkCount > cap) sb.AppendLine($"  ... +{atkCount - cap} more");
+        }
+
+        sb.AppendLine();
+        File.AppendAllText(capturePath, sb.ToString());
+        Plugin.Log.Info(
+            $"[capture] recorded label={label} (result={result}) → {capturePath}");
+    }
+
+    private static unsafe string FormatValue(AtkValue v)
+    {
+        switch (v.Type)
+        {
+            case FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int:
+                return $"{v.Type,-14} Int={v.Int}";
+            case FFXIVClientStructs.FFXIV.Component.GUI.ValueType.UInt:
+                return $"{v.Type,-14} UInt={v.UInt} (0x{v.UInt:X})";
+            case FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Bool:
+                return $"{v.Type,-14} Bool={v.Byte != 0}";
+            case FFXIVClientStructs.FFXIV.Component.GUI.ValueType.String:
+            case FFXIVClientStructs.FFXIV.Component.GUI.ValueType.String8:
+            case FFXIVClientStructs.FFXIV.Component.GUI.ValueType.ManagedString:
+                var s = v.String.Value != null
+                    ? System.Text.Encoding.UTF8.GetString(v.String)
+                    : "(null)";
+                return $"{v.Type,-14} String=\"{s}\"";
+            default:
+                return $"{v.Type,-14} raw=0x{v.UInt:X}";
+        }
     }
 }
