@@ -42,12 +42,29 @@ public sealed class InputEventLogger : IDisposable
     private bool disposed;
     private unsafe Hook<FireCallbackDelegate>? fireCallbackHook;
 
-    /// <summary>Label of the next FireCallback to record verbatim into the dedicated
-    /// capture log, or null if not armed. Cleared after one capture or on timeout.
-    /// Used to RE the click payload for actions whose opcodes we don't yet know
-    /// (riichi, tsumo, ron, ankan, shouminkan).</summary>
-    public string? PendingCaptureLabel { get; private set; }
+    /// <summary>Backing field for <see cref="PendingCaptureLabel"/>. Use the public
+    /// property — its getter expires stale labels lazily so the user-facing status
+    /// matches the actual capture behavior.</summary>
+    private string? pendingCaptureLabel;
     private DateTime captureArmedAt;
+
+    /// <summary>Label of the next FireCallback to record verbatim into the dedicated
+    /// capture log, or null if not armed / expired. Cleared after one capture, on
+    /// timeout (lazy — the getter clears stale labels on access), or via
+    /// <see cref="DisarmCapture"/>. Used to RE the click payload for actions whose
+    /// opcodes we don't yet know (riichi, tsumo, ron, ankan, shouminkan).</summary>
+    public string? PendingCaptureLabel
+    {
+        get
+        {
+            if (pendingCaptureLabel is not null
+                && (DateTime.UtcNow - captureArmedAt).TotalSeconds > CaptureTimeoutSeconds)
+            {
+                pendingCaptureLabel = null;
+            }
+            return pendingCaptureLabel;
+        }
+    }
 
     public bool Enabled { get; set; }
 
@@ -101,14 +118,14 @@ public sealed class InputEventLogger : IDisposable
     /// </summary>
     public void ArmCapture(string label)
     {
-        PendingCaptureLabel = label;
+        pendingCaptureLabel = label;
         captureArmedAt = DateTime.UtcNow;
     }
 
     /// <summary>Cancel a pending capture without recording anything.</summary>
     public void DisarmCapture()
     {
-        PendingCaptureLabel = null;
+        pendingCaptureLabel = null;
     }
 
     public void OpenLog()
@@ -151,6 +168,28 @@ public sealed class InputEventLogger : IDisposable
                 else if (preSnap.Legal.KanCandidates.Count > 0)
                     acceptedMeld = preSnap.Legal.KanCandidates[0];
             }
+        }
+
+        // Capture snapshot — must run BEFORE the original FireCallback. The original may
+        // mutate addon state (close a modal, refresh AtkValues), so reading post-call
+        // would record post-click state instead of the at-click context we want for RE.
+        // Both the addon AtkValues and the fire_args are formatted into managed strings
+        // here so the captured payload stays valid even if the caller's buffers move.
+        string? captureLabel = null;
+        string? captureHand = null;
+        string[]? captureFireArgs = null;
+        string[]? captureAtkValues = null;
+        int captureAtkCount = 0;
+        if (PendingCaptureLabel is { } pending
+            && addon != null && addon->NameString == AddonName)
+        {
+            captureLabel = pending;
+            captureFireArgs = SnapshotValues(values, (int)valueCount, max: 32);
+            captureAtkCount = addon->AtkValuesCount;
+            captureAtkValues = SnapshotValues(addon->AtkValues, captureAtkCount, max: 64);
+            var preSnap = reader.TryBuildSnapshot();
+            if (preSnap is not null && preSnap.Hand.Count > 0)
+                captureHand = Engine.Tiles.Render(preSnap.Hand);
         }
 
         // Always call the original FIRST so game logic is unaffected regardless of logger state.
@@ -213,29 +252,24 @@ public sealed class InputEventLogger : IDisposable
             Plugin.Log.Error($"FireCallback log error: {ex.Message}");
         }
 
-        // One-shot capture: dump the full FireCallback payload + addon AtkValues
-        // context to a dedicated file under a human-supplied label, then disarm.
-        // Used for opcode RE — the user runs `/mjauto capture riichi`, then clicks
-        // the riichi button in-game, and we get a single labeled entry to inspect.
-        if (PendingCaptureLabel is { } label
-            && addon != null && addon->NameString == AddonName)
+        // One-shot capture: write out the pre-call snapshot (taken above) plus the
+        // now-known result, then disarm. Used for opcode RE — the user runs
+        // `/mjauto capture riichi`, clicks the riichi button, and gets a labeled entry.
+        if (captureLabel is not null)
         {
             try
             {
-                if ((DateTime.UtcNow - captureArmedAt).TotalSeconds > CaptureTimeoutSeconds)
-                {
-                    PendingCaptureLabel = null;
-                }
-                else
-                {
-                    WriteCaptureEntry(label, addon, valueCount, values, close, result);
-                    PendingCaptureLabel = null;
-                }
+                WriteCaptureEntry(
+                    captureLabel, captureHand, captureFireArgs!, valueCount,
+                    captureAtkValues!, captureAtkCount, close, result);
             }
             catch (Exception ex)
             {
                 Plugin.Log.Error($"FireCallback capture error: {ex.Message}");
-                PendingCaptureLabel = null;
+            }
+            finally
+            {
+                pendingCaptureLabel = null;
             }
         }
 
@@ -297,48 +331,56 @@ public sealed class InputEventLogger : IDisposable
     }
 
     /// <summary>
-    /// Append a single annotated capture entry. Records every FireCallback arg
-    /// (so the click payload can be replayed) plus the addon's full AtkValues
-    /// snapshot (so we know which prompt/state was active when the click fired).
-    /// File is grep-friendly: each entry starts with a `# label=...` header.
+    /// Append a single annotated capture entry from a pre-call snapshot. The lines for
+    /// fire_args and addon AtkValues are formatted by <see cref="SnapshotValues"/>
+    /// before the original FireCallback runs, so they reflect the at-click state even
+    /// if the original mutates the addon. File is grep-friendly: each entry starts
+    /// with a <c># label=...</c> header.
     /// </summary>
-    private unsafe void WriteCaptureEntry(
-        string label, AtkUnitBase* addon, uint valueCount, AtkValue* values,
-        byte close, bool result)
+    private void WriteCaptureEntry(
+        string label, string? hand, string[] fireArgs, uint fireArgCount,
+        string[] atkValues, int atkCount, byte close, bool result)
     {
         var sb = new StringBuilder();
         sb.AppendLine(
             $"# {DateTime.UtcNow:o}  label={label}  result={result}  close={(close != 0)}  " +
-            $"valueCount={valueCount}");
+            $"valueCount={fireArgCount}");
 
-        var snap = reader.TryBuildSnapshot();
-        if (snap is not null && snap.Hand.Count > 0)
-            sb.AppendLine($"hand={Engine.Tiles.Render(snap.Hand)}");
+        if (hand is not null)
+            sb.AppendLine($"hand={hand}");
 
-        sb.AppendLine($"fire_args (count={valueCount}):");
-        if (values != null)
-        {
-            uint cap = valueCount > 32 ? 32 : valueCount;
-            for (uint i = 0; i < cap; i++)
-                sb.AppendLine($"  [{i,3}] {FormatValue(values[i])}");
-            if (valueCount > cap) sb.AppendLine($"  ... +{valueCount - cap} more");
-        }
+        sb.AppendLine($"fire_args (count={fireArgCount}):");
+        for (int i = 0; i < fireArgs.Length; i++)
+            sb.AppendLine($"  [{i,3}] {fireArgs[i]}");
+        if (fireArgCount > fireArgs.Length)
+            sb.AppendLine($"  ... +{fireArgCount - fireArgs.Length} more");
 
-        var atk = addon->AtkValues;
-        int atkCount = addon->AtkValuesCount;
         sb.AppendLine($"addon_atkvalues (count={atkCount}):");
-        if (atk != null)
-        {
-            int cap = Math.Min(atkCount, 64);
-            for (int i = 0; i < cap; i++)
-                sb.AppendLine($"  [{i,3}] {FormatValue(atk[i])}");
-            if (atkCount > cap) sb.AppendLine($"  ... +{atkCount - cap} more");
-        }
+        for (int i = 0; i < atkValues.Length; i++)
+            sb.AppendLine($"  [{i,3}] {atkValues[i]}");
+        if (atkCount > atkValues.Length)
+            sb.AppendLine($"  ... +{atkCount - atkValues.Length} more");
 
         sb.AppendLine();
         File.AppendAllText(capturePath, sb.ToString());
         Plugin.Log.Info(
             $"[capture] recorded label={label} (result={result}) → {capturePath}");
+    }
+
+    /// <summary>
+    /// Format up to <paramref name="max"/> AtkValues into managed strings while we
+    /// still have valid pointers. Strings are decoded eagerly so the captured payload
+    /// stays correct after the original FireCallback returns and the source memory may
+    /// have been reused. Returns an empty array if <paramref name="values"/> is null.
+    /// </summary>
+    private static unsafe string[] SnapshotValues(AtkValue* values, int count, int max)
+    {
+        if (values == null || count <= 0) return Array.Empty<string>();
+        int n = Math.Min(count, max);
+        var result = new string[n];
+        for (int i = 0; i < n; i++)
+            result[i] = FormatValue(values[i]);
+        return result;
     }
 
     private static unsafe string FormatValue(AtkValue v)
