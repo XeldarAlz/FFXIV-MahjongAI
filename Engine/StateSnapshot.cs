@@ -13,7 +13,14 @@ public sealed record SeatView(
     bool Riichi,
     int RiichiDiscardIndex,                // -1 if not riichi'd
     bool Ippatsu,
-    bool IsTenpaiCalled);
+    bool IsTenpaiCalled,
+    int DiscardCount = 0);                 // authoritative count even when Discards list is empty
+                                           // (UI-tree walk pinned the per-seat count byte; the
+                                           // tile pool itself lives in the game-state module
+                                           // which is behind a stale static offset, so we track
+                                           // count-only for now). Prefer this over Discards.Count
+                                           // in policy code — the latter is 0 when the pool
+                                           // couldn't be resolved.
 
 /// <summary>
 /// An immutable description of the current table state from our perspective.

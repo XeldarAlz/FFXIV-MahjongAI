@@ -56,7 +56,12 @@ public sealed class OpponentModel
             var seat = state.Seats[absSeat];
 
             // Feature 1: discard count. Later in the round = more likely tenpai.
-            double discardCount = seat.Discards.Count;
+            // Prefer the authoritative DiscardCount (pinned from addon memory
+            // on every snapshot); fall back to the tile list's length only if
+            // that byte wasn't resolvable.
+            double discardCount = seat.DiscardCount > 0
+                ? seat.DiscardCount
+                : seat.Discards.Count;
             // Feature 2: meld count. Open melds accelerate tenpai.
             double meldCount = seat.Melds.Count;
             // Feature 3: riichi declared → tenpai certain.

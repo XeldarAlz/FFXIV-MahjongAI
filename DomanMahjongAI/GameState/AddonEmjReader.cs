@@ -164,6 +164,27 @@ public sealed class AddonEmjReader : IDisposable
         bool plausibleScores = scores.All(s => s is >= 0 and <= 200000);
         if (!plausibleScores) return null;
 
+        // Per-seat discard count bytes. Sit 2 bytes before each score field —
+        // the position was pinned by diffing consecutive observations across a
+        // full round and confirmed via walknodes (4 pools of 31 UldComponent
+        // slots, each pool's visible count matching its byte). The actual tile
+        // pool itself isn't in the addon — it lives in the game-state module
+        // whose static offset is currently stale post-patch — so we track the
+        // count only. That's still useful: it feeds turn-progression features
+        // in the opponent model and gives us an accurate wall count in every
+        // state (not just state 5).
+        int[] discardCounts = new int[4]
+        {
+            basePtr[0x04FE],
+            basePtr[0x07DE],
+            basePtr[0x0ABE],
+            basePtr[0x0D9E],
+        };
+        // Reject implausible values — each seat discards up to ~24 times in a
+        // 70-wall round; anything way over that means we're reading garbage.
+        if (discardCounts.Any(c => c > 40))
+            discardCounts = new[] { 0, 0, 0, 0 };
+
         // State code and wall count from AtkValues. AtkValues[0] holds the state code
         // (30=our turn, 15=call prompt, 5=post-draw idle, etc.). AtkValues[1] holds wall
         // count when state == 5.
@@ -181,6 +202,16 @@ public sealed class AddonEmjReader : IDisposable
                 if (reported is > 0 and <= 136) wallRemaining = reported;
             }
         }
+        // Fall back to count-derived wall when the AtkValue path didn't fire.
+        // wall_remaining ≈ 70 initial live-wall draws − total discards (each
+        // discard follows a draw). Ignores kan draws from the dead wall (minor
+        // under-estimate when kans occur — acceptable).
+        if (wallRemaining == StateSnapshot.Empty.WallRemaining)
+        {
+            int totalDiscards = discardCounts.Sum();
+            int derived = 70 - totalDiscards;
+            if (derived is >= 0 and <= 70) wallRemaining = derived;
+        }
 
         // Assemble the snapshot. Seat-relative: self is always index 0 here.
         // RoundWind / OurSeat (in the absolute E/S/W/N sense) aren't reliably recoverable
@@ -188,7 +219,8 @@ public sealed class AddonEmjReader : IDisposable
         // East for yakuhai purposes (minor inaccuracy, fixable when M4 sig-scan lands).
         var seats = new SeatView[4];
         for (int i = 0; i < 4; i++)
-            seats[i] = new SeatView([], [], [], false, -1, false, false);
+            seats[i] = new SeatView([], [], [], false, -1, false, false,
+                DiscardCount: discardCounts[i]);
 
         var legal = BuildLegalActions(stateCode, hand, atkValues, atkCount);
 
