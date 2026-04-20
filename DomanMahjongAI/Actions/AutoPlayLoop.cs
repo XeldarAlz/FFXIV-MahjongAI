@@ -8,15 +8,16 @@ using System;
 namespace DomanMahjongAI.Actions;
 
 /// <summary>
-/// Continuous discard-only auto-play loop. Watches the Emj addon's state code
-/// (AtkValues[0]) and dispatches actions via <see cref="InputDispatcher"/>:
+/// Continuous auto-play loop. Drives the Emj addon through its state machine via
+/// <see cref="InputDispatcher"/>:
 /// <list type="bullet">
-///   <item>State 30 (our turn to discard) → policy picks → discard</item>
-///   <item>State 13 (post-call discard, after chi/pon/kan) → policy picks → discard</item>
-///   <item>State 15 (call prompt) → pass (option 1 = rightmost)</item>
+///   <item>Discard turn (Legal.Can(Discard)) → policy picks → discard/riichi</item>
+///   <item>Call prompt at state 15 (pon/chi/kan/ron) or state 6 (riichi/tsumo
+///       self-declaration) with modal visible → policy picks → accept or pass</item>
+///   <item>State 25 (chi-variant selection, the follow-up after accepting chi with
+///       multiple possible sequences) → dispatch opt=0 to pick the first variant</item>
 /// </list>
-/// All other states (opponent turn, animations, hand-end) are ignored —
-/// tsumo/ron/riichi/kan are M8 work.
+/// All other states (opponent turn, animations, hand-end) are ignored.
 ///
 /// Gated by configuration: requires <c>AutomationArmed</c> true, <c>SuggestionOnly</c>
 /// false, and <c>TosAccepted</c> true. Any one of those false and the loop
@@ -33,20 +34,11 @@ public sealed class AutoPlayLoop : IDisposable
     /// permanently stuck loop.</summary>
     private const double ActionPendingTimeoutSeconds = 10.0;
 
-    /// <summary>After a call-prompt FireCallback returns false (HookFailed) we treat it
-    /// as a false-positive prompt — state==15 with banner text in AtkValues but no real
-    /// modal awaiting input — and skip the call-prompt path for this long. Discards
-    /// keep firing normally; a real prompt arriving mid-backoff is missed for at most
-    /// this window, which is well inside human reaction time.</summary>
-    private const double CallPromptFailBackoffSeconds = 5.0;
-
     private readonly Plugin plugin;
     private bool actionPending;
     private DateTime actionPendingStartedAt = DateTime.MinValue;
     private DateTime lastActionAt = DateTime.MinValue;
     private (int State, int Hand)? lastDispatchedContext;
-    private DateTime callPromptBackoffUntil = DateTime.MinValue;
-    private (int State, int Hand)? lastLoggedFailContext;
     private bool disposed;
 
     /// <summary>Short human-readable description of the most recent auto action. For the overlay.</summary>
@@ -114,14 +106,42 @@ public sealed class AutoPlayLoop : IDisposable
         LastObservedState = state;
         LastObservedHandCount = hand;
 
-        // Intent from current state + legal flags.
+        // State 25 = chi-variant selection popup — the follow-up after we click Chi on
+        // the state-15 prompt when the claimed tile has multiple possible sequences
+        // (e.g. hand 3,4,5,6 + claimed 5 → {3,4,5}, {4,5,6}). The game pauses with a
+        // new modal showing each variant as a button plus Cancel. Policy already
+        // committed to chi on the prior popup so we just click option 0 (first
+        // variant). Signature from snap-chi-variant: AtkValues[0]=25, [2]="Chi",
+        // [3]=variant count, [4..] = three-tile texture runs separated by 76041 markers.
+        if (state == 25)
+        {
+            var ctx25 = (state, hand);
+            bool sameCtx25 = lastDispatchedContext == ctx25;
+            double sinceMs25 = (DateTime.UtcNow - lastActionAt).TotalMilliseconds;
+            if (!sameCtx25 || sinceMs25 >= RetrySeconds * 1000)
+            {
+                lastDispatchedContext = ctx25;
+                ScheduleVariantAccept();
+            }
+            return;
+        }
+
+        // Intent is driven purely by the reader's legal flags. AddonEmjReader already
+        // distinguishes "modal-visible call prompt" from "our discard turn" using the
+        // node-visibility gate on the id=104/id=3 shell and the hand %3==2 check — both
+        // state 15 (pon/chi/kan/ron) and state 6 (riichi/tsumo self-declaration) share
+        // the same shell, and state 6 also doubles as the normal discard-turn code, so
+        // gating on state-codes here double-counts and blocks legitimate discards (see
+        // snap-newgame-stuck: state=6, hand=14, legal=Discard, but AtkValues[6]="Discard"
+        // proved it was a plain discard turn). Call-prompt flags and Discard are
+        // mutually exclusive in the reader's output, so checking flags alone is safe.
         const Engine.ActionFlags acceptable =
             Engine.ActionFlags.Pon | Engine.ActionFlags.Chi |
             Engine.ActionFlags.MinKan | Engine.ActionFlags.ShouMinKan |
             Engine.ActionFlags.Ron | Engine.ActionFlags.Riichi |
             Engine.ActionFlags.Tsumo;
-        bool isCallPrompt = state == 15 && (snap.Legal.Flags & acceptable) != 0;
-        bool isDiscardTurn = state != 15 && snap.Legal.Can(Engine.ActionFlags.Discard);
+        bool isCallPrompt = (snap.Legal.Flags & acceptable) != 0;
+        bool isDiscardTurn = snap.Legal.Can(Engine.ActionFlags.Discard);
 
         if (!isCallPrompt && !isDiscardTurn)
         {
@@ -129,12 +149,6 @@ public sealed class AutoPlayLoop : IDisposable
             lastDispatchedContext = null;
             return;
         }
-
-        // Call-prompt cooldown after a HookFailed: skip the call-prompt path without
-        // pinning context, so a real discard turn (state != 15) still fires as soon
-        // as the game transitions.
-        if (isCallPrompt && DateTime.UtcNow < callPromptBackoffUntil)
-            return;
 
         var context = (state, hand);
         bool sameContextAsLast = lastDispatchedContext == context;
@@ -148,6 +162,44 @@ public sealed class AutoPlayLoop : IDisposable
         lastDispatchedContext = context;
         if (isCallPrompt) ScheduleCallDecision(context);
         else ScheduleDiscard();
+    }
+
+    private void ScheduleVariantAccept()
+    {
+        actionPending = true;
+        actionPendingStartedAt = DateTime.UtcNow;
+        lastActionAt = DateTime.UtcNow;
+        var delay = HumanTiming.RandomDelay(medianMs: 500);
+        _ = Plugin.Framework.RunOnTick(() =>
+        {
+            try
+            {
+                // Re-check state at dispatch time — the modal can close during the
+                // humanized delay (auto-declare elsewhere, manual click, opponent
+                // timeout). Firing opcode 11 after the state machine moved on would
+                // accept option 0 of whatever popup came next, which may not be a
+                // chi variant. Mirrors the re-check in ScheduleDiscard.
+                int currentState = ReadStateCode();
+                if (currentState != 25)
+                {
+                    LastActionDescription =
+                        $"variant aborted: state moved {25}→{currentState}";
+                    return;
+                }
+                var result = plugin.Dispatcher.DispatchCallOption(0);
+                LastActionDescription = $"auto-variant[opt=0] → {result}";
+                Plugin.Log.Info($"[AutoPlayLoop] variant dispatch: {LastActionDescription}");
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Error($"AutoPlayLoop variant decision error: {ex}");
+                LastActionDescription = $"variant exception: {ex.Message}";
+            }
+            finally
+            {
+                actionPending = false;
+            }
+        }, delay);
     }
 
     private unsafe int ReadStateCode()
@@ -258,14 +310,15 @@ public sealed class AutoPlayLoop : IDisposable
 
                 var choice = plugin.Policy.Choose(snap);
 
-                // At state 15 every prompt is a modal with "Accept" at option 0 and
-                // "Pass/Cancel" at option 1, so all accept-dispatches use DispatchCall().
-                // The speculative opcode-based DispatchRon/Tsumo paths are not used here:
-                // FireCallback opcode 11 with option 0 is the confirmed accept mechanism.
+                // At state 15 (pon/chi/kan/ron) and state 6 (riichi/tsumo self-declaration)
+                // every prompt is a modal with "Accept" at option 0 and "Pass/Cancel" at
+                // option 1. Both states use the same FireCallback payload — opcode 11,
+                // option = button-index. DispatchRon/Tsumo/Riichi in InputDispatcher are
+                // legacy stubs kept for API shape; the actual accept path is DispatchCall().
                 //
-                // Riichi confirmation popup: policy.Choose returns Pass because its Riichi
-                // branch lives in the discard flow. If Riichi is offered on its own, we
-                // accept — the user already committed by the time the popup appears.
+                // Riichi popup: policy.Choose returns Pass because its Riichi branch lives
+                // in the discard flow. If Riichi is offered on its own, we accept — the
+                // user already committed by the time the popup appears.
                 var legal = snap.Legal;
                 bool acceptRiichiPopup =
                     choice.Kind == ActionKind.Pass && legal.Can(Engine.ActionFlags.Riichi);
@@ -292,7 +345,7 @@ public sealed class AutoPlayLoop : IDisposable
                     // Pass is always the rightmost button, so its option index equals the
                     // number of accept buttons shown. 2-button Pon+Pass: pass=1. 3-button
                     // Pon+Kan+Pass: pass=2. Multi-chi + Pass: pass=ChiCandidates.Count+...
-                    // Hardcoding 1 misclicks on 3-button prompts (hits Kan → HookFailed).
+                    // Hardcoding 1 misclicks on 3-button prompts.
                     int passIndex = 0;
                     if (legal.Can(Engine.ActionFlags.Pon)) passIndex++;
                     if (legal.Can(Engine.ActionFlags.Chi))
@@ -306,26 +359,7 @@ public sealed class AutoPlayLoop : IDisposable
                     LastActionDescription = $"auto-pass[opt={passIndex}] → {result}";
                 }
 
-                if (result == InputDispatcher.DispatchResult.HookFailed)
-                {
-                    // Likely a false-positive prompt (state==15 with Pon/Riichi/etc.
-                    // strings in AtkValues but no modal awaiting input). Back off so
-                    // we don't spam FireCallback or the log; discards still fire.
-                    callPromptBackoffUntil =
-                        DateTime.UtcNow.AddSeconds(CallPromptFailBackoffSeconds);
-                    if (lastLoggedFailContext != context)
-                    {
-                        Plugin.Log.Info(
-                            $"[AutoPlayLoop] call-prompt dispatch: {LastActionDescription}" +
-                            $" — backing off {CallPromptFailBackoffSeconds:0.#}s");
-                        lastLoggedFailContext = context;
-                    }
-                }
-                else
-                {
-                    Plugin.Log.Info($"[AutoPlayLoop] call-prompt dispatch: {LastActionDescription}");
-                    lastLoggedFailContext = null;
-                }
+                Plugin.Log.Info($"[AutoPlayLoop] call-prompt dispatch: {LastActionDescription}");
             }
             catch (Exception ex)
             {

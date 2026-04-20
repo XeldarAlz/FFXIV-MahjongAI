@@ -55,12 +55,20 @@ public sealed class InputDispatcher
     /// <summary>
     /// Select option <paramref name="option"/> on the currently-active call prompt.
     /// Option numbers are button-order (leftmost = 0):
-    ///   pon/pass prompt: 0 = Pon, 1 = Pass
-    ///   chi/pass prompt: 0 = Chi, 1 = Pass
-    ///   chi with multiple sequences: 0..N = chi variants, N+1 = Pass
-    /// So "Pass" is always the RIGHTMOST option. Use <see cref="DispatchPass"/>
-    /// with an explicit option-count if you know the prompt shape, otherwise the
-    /// auto-pass loop must read AtkValues to determine how many options are shown.
+    ///   pon/pass prompt:    0 = Pon, 1 = Pass
+    ///   chi/pass prompt:    0 = Chi, 1 = Pass
+    ///   chi multi-sequence: 0..N = chi variants, N+1 = Pass
+    ///   riichi (state 6):   0 = Riichi, 1 = Pass — same payload, different state code
+    /// "Pass" is always the RIGHTMOST option.
+    ///
+    /// <para>Return value note: FireCallback returns <c>false</c> for the call-prompt
+    /// opcode (11) even on manual in-game clicks that the game visibly accepts —
+    /// verified by capturing pon/chi/riichi/tsumo button presses with the capture
+    /// hook, which all logged <c>result=False</c> despite the pon/chi/riichi/tsumo
+    /// actually firing. The return value is not a success signal for this opcode, so
+    /// we ignore it and always report <see cref="DispatchResult.Ok"/>. The caller is
+    /// expected to have verified the modal-visibility gate before dispatching —
+    /// that's the real "should we click" predicate.</para>
     /// </summary>
     public unsafe DispatchResult DispatchCallOption(int option)
     {
@@ -74,8 +82,8 @@ public sealed class InputDispatcher
         var values = stackalloc AtkValue[2];
         values[0].SetInt(11);
         values[1].SetInt(option);
-        bool ok = unit->FireCallback(2, values, true);
-        return ok ? DispatchResult.Ok : DispatchResult.HookFailed;
+        unit->FireCallback(2, values, true);
+        return DispatchResult.Ok;
     }
 
     /// <summary>
