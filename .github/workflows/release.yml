@@ -4,6 +4,15 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  # Manual fallback: when auto-tag pushes a tag via GITHUB_TOKEN, GitHub
+  # sometimes refuses to cascade-trigger this workflow. Dispatch on the tag
+  # ref to publish the release without having to delete and re-push the tag.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.0.0.10). Defaults to the ref this is dispatched on.'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -13,8 +22,31 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      - name: Resolve target tag
+        id: tag
+        shell: bash
+        run: |
+          # Tag-push: github.ref_name is already the tag.
+          # workflow_dispatch on a tag ref: same.
+          # workflow_dispatch on main with `tag` input: use the input.
+          ref_name="${{ github.ref_name }}"
+          input_tag="${{ inputs.tag }}"
+          if [ -n "$input_tag" ]; then
+            target="$input_tag"
+          else
+            target="$ref_name"
+          fi
+          if [[ ! "$target" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+            echo "::error::Resolved target '$target' is not a v*.*.* tag — pass the tag input or dispatch on a tag ref."
+            exit 1
+          fi
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          echo "Releasing $target"
+
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.target }}
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
@@ -49,5 +81,6 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.tag.outputs.target }}
           files: DomanMahjongAI/bin/Release/DomanMahjongAI/latest.zip
           generate_release_notes: true
