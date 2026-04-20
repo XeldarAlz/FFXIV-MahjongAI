@@ -225,7 +225,7 @@ public sealed class AddonEmjReader : IDisposable
             seats[i] = new SeatView([], [], [], false, -1, false, false,
                 DiscardCount: discardCounts[i]);
 
-        var legal = BuildLegalActions(stateCode, hand, atkValues, atkCount);
+        var legal = BuildLegalActions(unit, stateCode, hand, atkValues, atkCount);
 
         MaybeLogCallPromptTransition(addr, stateCode, atkValues, atkCount, hand, legal);
         MaybeLogMeldTransition(addr, stateCode, hand);
@@ -484,9 +484,19 @@ public sealed class AddonEmjReader : IDisposable
     /// </list>
     /// </summary>
     private static unsafe LegalActions BuildLegalActions(
-        int stateCode, List<Tile> hand, AtkValue* atkValues, int atkCount)
+        AtkUnitBase* unit, int stateCode, List<Tile> hand, AtkValue* atkValues, int atkCount)
     {
-        if (stateCode == 15 && atkValues != null)
+        // Call-prompt states 15 (pon/chi/kan/ron) and 6 (riichi/tsumo self-declarations)
+        // are overloaded: they also tick during idle frames that carry banner text for
+        // opponents' declarations, which our AtkValues label scan would otherwise pick up
+        // as a prompt. Gate on the modal-shell node: the Emj addon's id=104/type=1052
+        // host contains an inner id=3/type=1030 shell whose Visible flag only flips on
+        // while the game is actually awaiting a decision. Verified across pon+pass,
+        // riichi-confirm, and ron+pass captures. Button payload is the same for both
+        // state codes — FireCallback([Int=11, Int=0..N]) — proven by RE captures of
+        // manual riichi/tsumo clicks at state 6 firing opcode 11 with option 0.
+        if ((stateCode == 15 || stateCode == 6)
+            && atkValues != null && IsCallModalVisible(unit))
             return BuildCallPromptLegal(hand, atkValues, atkCount);
 
         // "Our turn to discard" = 14 tiles with 0 melds, 11 with 1 meld, 8 with 2, etc. —
@@ -495,6 +505,19 @@ public sealed class AddonEmjReader : IDisposable
             return new LegalActions(ActionFlags.Discard, [], [], [], []);
 
         return LegalActions.None;
+    }
+
+    private static unsafe bool IsCallModalVisible(AtkUnitBase* unit)
+    {
+        if (unit == null) return false;
+        var host = unit->GetNodeById(104);
+        if (host == null) return false;
+        var comp = ((AtkComponentNode*)host)->Component;
+        if (comp == null) return false;
+        var shell = comp->GetNodeById(3);
+        return shell != null
+            && shell->NodeFlags.HasFlag(
+                FFXIVClientStructs.FFXIV.Component.GUI.NodeFlags.Visible);
     }
 
     private static unsafe LegalActions BuildCallPromptLegal(

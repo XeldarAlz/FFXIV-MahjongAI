@@ -195,9 +195,15 @@ public sealed class InputEventLogger : IDisposable
         // Always call the original FIRST so game logic is unaffected regardless of logger state.
         bool result = fireCallbackHook!.Original(addon, valueCount, values, close);
 
-        // Record the meld only if the game accepted the click. Covers both plugin
-        // auto-accepts and manual in-game clicks — the tracker needs both.
-        if (acceptedMeld is { } meld && result)
+        // Record the meld on every opcode-11/option-0 dispatch, not gated on result.
+        // FireCallback returns false for this opcode even when the game accepts the
+        // click (verified by capturing manual in-game pon/chi/riichi presses — all
+        // logged result=False despite the calls actually firing). Gating on result
+        // here desynced MeldTracker from reality: after every pon, closed-hand ran
+        // 3 tiles ahead of what we'd recorded, and AutoPlayLoop's % 3 == 2 discard
+        // check eventually rejected our turn as "not a discard state" — the real
+        // root cause of the "plays 1-2 rounds then freezes" report in #9.
+        if (acceptedMeld is { } meld)
         {
             try { meldTracker.Record(Engine.Meld.FromAcceptedCandidate(meld)); }
             catch (Exception ex) { Plugin.Log.Error($"MeldTracker record error: {ex.Message}"); }
