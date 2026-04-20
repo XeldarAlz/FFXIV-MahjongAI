@@ -5,7 +5,7 @@ using System;
 namespace DomanMahjongAI.Actions;
 
 /// <summary>
-/// Sends input events to the <c>EmjL</c> addon via <c>AtkUnitBase.FireCallback</c>.
+/// Sends input events to the <c>Emj</c> addon via <c>AtkUnitBase.FireCallback</c>.
 /// All calls must be made from the framework thread.
 ///
 /// Callback patterns discovered during M6 logging (see <c>memory/project_addon_emj_re_notes.md</c>):

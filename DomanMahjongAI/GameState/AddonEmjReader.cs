@@ -9,7 +9,7 @@ using System.Linq;
 namespace DomanMahjongAI.GameState;
 
 /// <summary>
-/// Finds the <c>EmjL</c> addon in the running client, subscribes to its lifecycle
+/// Finds the <c>Emj</c> addon in the running client, subscribes to its lifecycle
 /// events, and exposes:
 ///   - a raw <see cref="AddonEmjObservation"/> (for diagnostics and the debug overlay)
 ///   - a <see cref="StateSnapshot"/> builder (stubbed until RE is finished)
@@ -18,7 +18,7 @@ namespace DomanMahjongAI.GameState;
 /// </summary>
 public sealed class AddonEmjReader : IDisposable
 {
-    public const string AddonName = "EmjL";
+    public const string AddonName = "Emj";
 
     private readonly Plugin plugin;
     private bool disposed;
