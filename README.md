@@ -2,7 +2,7 @@
   <img src="DomanMahjongAI/images/icon.png" width="120" alt="Doman Mahjong Solver icon">
 </p>
 
-<h1 align="center">Doman Mahjong Solver</h1>
+<h1 align="center">Doman Mahjong Solver (STILL WORK IN PROGRESS, EXPECT BUGS) </h1>
 
 <p align="center">
   A helper for <b>Doman Mahjong</b> at the Gold Saucer.<br>
@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/XeldarAlz/FFXIV-DomanMahjongSolver/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/XeldarAlz/FFXIV-DomanMahjongSolver/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/XeldarAlz/FFXIV-DomanMahjongSolver/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/XeldarAlz/FFXIV-DomanMahjongSolver?label=release&color=blue"></a>
-  <img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-green">
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0--or--later-green"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-FFXIV%20%7C%20Dalamud-orange">
 </p>
 
@@ -45,22 +45,8 @@ Tick the checkbox, save. Then `/xlplugins` → search **Doman Mahjong Solver** �
 - Click the right option yourself in-game — the plugin resumes on the next turn.
 - Or from chat: `/mjauto pass <N>` where `<N>` is the button index (0 = leftmost, rightmost is always Pass).
 
-## Safety — read this
-
-Auto-play uses third-party input automation, which is **against the FFXIV Terms of Service**. Square Enix can and does sanction accounts for it. This plugin is provided as-is. Use **Hints mode** unless you've thought carefully about the risk.
-
-| | |
-|---|---|
-| **Off by default** | Nothing runs until you accept the notice and pick a non-Off mode. |
-| **Hints are safe** | No clicks ever sent to the game in hint mode. Read-only. |
-| **Natural pacing** | Auto clicks spaced randomly around 1.2s. Adjustable in settings. |
-| **Kill switch** | Flip back to Off — every click stops on the next frame, mid-game. |
-
 ## Problems?
-
-- **"Plugin failed to load"** — `/xlsettings` → Experimental → Dev Plugin Locations: remove any stale entry pointing at a local folder, then reinstall.
-- **No icon in plugin list** — Dalamud caches the repo. Refresh the custom-repo entry in Experimental, or restart the game.
-- **Anything else** — [open an issue](https://github.com/XeldarAlz/FFXIV-DomanMahjongSolver/issues) with the error text.
+- [Open an issue](https://github.com/XeldarAlz/FFXIV-DomanMahjongSolver/issues) with the error text.
 
 ## License
 
