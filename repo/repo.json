@@ -11,13 +11,21 @@
     "DalamudApiLevel": 14,
     "TestingDalamudApiLevel": 14,
     "MinimumDalamudVersion": null,
-    "Tags": ["mahjong", "doman", "gold-saucer", "ai", "automation"],
-    "CategoryTags": ["Utility"],
+    "Tags": [
+      "mahjong",
+      "doman",
+      "gold-saucer",
+      "ai",
+      "automation"
+    ],
+    "CategoryTags": [
+      "Utility"
+    ],
     "IconUrl": "https://raw.githubusercontent.com/XeldarAlz/FFXIV-DomanMahjongSolver/main/DomanMahjongAI/images/icon.png",
     "Punchline": "Doman Mahjong helper — hints or auto-play.",
     "Description": "A helper for Doman Mahjong at the Gold Saucer. Two modes:\n\n• Hint mode (default): shows the best tile to discard and a short explanation. You still click every move.\n• Auto-play: the plugin watches the table and clicks for you with natural pacing.\n\nStarts off by default. You must accept a short notice before auto-play can be turned on, and you can switch back to hints or turn it off at any time from the plugin window.",
     "Changelog": "v0.0.0.14 — call-prompt detection is now gated on the popup-shell node's visibility, so opponent banner animations (Pon!/Riichi!) no longer trick auto-play into clicking. Riichi/tsumo self-declarations and the chi-variant follow-up popup are handled end-to-end. Fixes the mid-match freeze from #9: every accepted call is recorded so hand tracking stays in sync round after round.",
-    "DownloadCount": 0,
+    "DownloadCount": 57,
     "LastUpdate": 0,
     "DownloadLinkInstall": "https://github.com/XeldarAlz/FFXIV-DomanMahjongSolver/releases/latest/download/latest.zip",
     "DownloadLinkTesting": "https://github.com/XeldarAlz/FFXIV-DomanMahjongSolver/releases/latest/download/latest.zip",
