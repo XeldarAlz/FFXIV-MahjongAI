@@ -499,6 +499,18 @@ public sealed class AddonEmjReader : IDisposable
             && atkValues != null && IsCallModalVisible(unit))
             return BuildCallPromptLegal(hand, atkValues, atkCount);
 
+        // State 28: the novice-table standalone Riichi/Pass popup (and other call
+        // prompts served through an AtkComponentList widget). Button labels do NOT
+        // live in parent AtkValues here — they live inside each ListItemRenderer's
+        // AtkTextNode child. A capture of a manual Riichi click at state 28 confirmed
+        // FireCallback([11, 0]) is still the click payload; only prompt-detection
+        // needed a different path. Without this branch, state 28 falls through to
+        // the hand%3==2 fallback, which fails because this sub-state presents
+        // a 13-tile hand (drawn tile detached), so Legal.None is returned and
+        // AutoPlayLoop idles silently (issue #22).
+        if (stateCode == 28 && IsCallModalVisible(unit))
+            return BuildCallPromptLegalFromListItems(unit);
+
         // "Our turn to discard" = 14 tiles with 0 melds, 11 with 1 meld, 8 with 2, etc. —
         // all satisfy hand % 3 == 2. Hardcoding 14 skipped every post-call discard.
         if (hand.Count > 0 && hand.Count % 3 == 2)
@@ -654,5 +666,110 @@ public sealed class AddonEmjReader : IDisposable
         }
 
         return new LegalActions(flags, [], pons, chis, kans);
+    }
+
+    /// <summary>
+    /// Build LegalActions for an AtkComponentList-based call prompt (state 28 today).
+    /// Reads each visible ListItemRenderer child of the modal shell and maps its text
+    /// label to an <see cref="ActionFlags"/> bit. No meld candidates are derived —
+    /// state-28 prompts seen so far are Riichi/Pass only, where the accept path is
+    /// opt 0 regardless of candidates. If a future capture shows Pon/Chi/Kan offered
+    /// via this widget, we'd need to also locate the claimed tile (the state-15 path
+    /// reads it from AtkValues[19]; the state-28 equivalent offset is unmapped).
+    /// </summary>
+    private static unsafe LegalActions BuildCallPromptLegalFromListItems(AtkUnitBase* unit)
+    {
+        var labels = ReadVisibleListItemLabels(unit);
+        if (labels.Count == 0)
+            return new LegalActions(ActionFlags.Pass, [], [], [], []);
+
+        ActionFlags flags = ActionFlags.Pass;
+        foreach (var raw in labels)
+        {
+            switch (raw.Trim())
+            {
+                case "Pon": flags |= ActionFlags.Pon; break;
+                case "Chi": flags |= ActionFlags.Chi; break;
+                case "Kan": flags |= ActionFlags.MinKan; break;
+                case "Ron": flags |= ActionFlags.Ron; break;
+                case "Riichi": flags |= ActionFlags.Riichi; break;
+                case "Tsumo": flags |= ActionFlags.Tsumo; break;
+                // "Pass" / "Cancel" contribute no accept flag — AutoPlayLoop derives
+                // the pass option index from the count of accept flags set.
+            }
+        }
+        return new LegalActions(flags, [], [], [], []);
+    }
+
+    /// <summary>
+    /// Read the labels of visible ListItemRenderer children under the modal shell
+    /// (host id=104 → inner id=3 AtkComponentList). Returns labels in top-to-bottom
+    /// visual order so the caller can rely on "packed" option indices matching the
+    /// FireCallback([11, N]) convention (N = visual position of the clicked button).
+    /// </summary>
+    private static unsafe List<string> ReadVisibleListItemLabels(AtkUnitBase* unit)
+    {
+        var labels = new List<string>();
+        if (unit == null) return labels;
+
+        var host = unit->GetNodeById(104);
+        if (host == null || (int)host->Type < 1000) return labels;
+        var hostComp = ((AtkComponentNode*)host)->Component;
+        if (hostComp == null) return labels;
+        var shell = hostComp->GetNodeById(3);
+        if (shell == null || (int)shell->Type < 1000) return labels;
+        var shellComp = ((AtkComponentNode*)shell)->Component;
+        if (shellComp == null) return labels;
+
+        var ulm = shellComp->UldManager;
+        if (ulm.NodeList == null || ulm.NodeListCount == 0) return labels;
+
+        // Collect (Y coord, text) for every visible component child. Component
+        // nodes (Type ≥ 1000) are the list-item renderers — image/nine-grid
+        // children are list chrome (background, highlight) and ignored.
+        var items = new List<(float y, string text)>();
+        for (int i = 0; i < ulm.NodeListCount; i++)
+        {
+            var node = ulm.NodeList[i];
+            if (node == null) continue;
+            if ((int)node->Type < 1000) continue;
+            if (!node->NodeFlags.HasFlag(
+                FFXIVClientStructs.FFXIV.Component.GUI.NodeFlags.Visible))
+                continue;
+            var itemComp = ((AtkComponentNode*)node)->Component;
+            if (itemComp == null) continue;
+            string text = FindFirstTextInComponent(itemComp) ?? string.Empty;
+            items.Add((node->Y, text));
+        }
+        // Sort top-to-bottom: the game's FireCallback option index for a list
+        // click follows visual order (opt 0 = top button). NodeList order isn't
+        // guaranteed to match visual order when item renderers are recycled.
+        items.Sort((a, b) => a.y.CompareTo(b.y));
+        foreach (var (_, t) in items) labels.Add(t);
+        return labels;
+    }
+
+    /// <summary>
+    /// Find the first non-empty AtkTextNode text in a component's flat NodeList.
+    /// Each ListItemRenderer holds its label in a single text child; we don't need
+    /// to recurse into nested components.
+    /// </summary>
+    private static unsafe string? FindFirstTextInComponent(
+        FFXIVClientStructs.FFXIV.Component.GUI.AtkComponentBase* comp)
+    {
+        if (comp == null) return null;
+        var ulm = comp->UldManager;
+        if (ulm.NodeList == null || ulm.NodeListCount == 0) return null;
+        for (int i = 0; i < ulm.NodeListCount; i++)
+        {
+            var node = ulm.NodeList[i];
+            if (node == null) continue;
+            if (node->Type != FFXIVClientStructs.FFXIV.Component.GUI.NodeType.Text)
+                continue;
+            var textNode = (FFXIVClientStructs.FFXIV.Component.GUI.AtkTextNode*)node;
+            var s = textNode->NodeText.ToString();
+            if (!string.IsNullOrWhiteSpace(s)) return s;
+        }
+        return null;
     }
 }
