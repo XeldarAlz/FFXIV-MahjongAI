@@ -41,6 +41,17 @@ public sealed class AutoPlayLoop : IDisposable
     private (int State, int Hand)? lastDispatchedContext;
     private bool disposed;
 
+    /// <summary>Set after a successful <c>auto-riichi-confirm</c> dispatch. FFXIV
+    /// novice mahjong shows a "declaration details / yaku preview" popup after the
+    /// initial Riichi click — same AtkComponentList shell and same Riichi-flag
+    /// signature as the pre-click popup, so the reader can't tell them apart and
+    /// the loop would otherwise retry-dispatch riichi-confirm forever. This flag
+    /// latches on the first dispatch; on the next tick that still sees a Riichi
+    /// popup we route to the tsumogiri-discard path to complete the declaration
+    /// instead of re-clicking the list. Cleared when the Riichi flag goes away
+    /// (popup gone) or when the hand count changes (discard landed).</summary>
+    private bool riichiConfirmLatched;
+
     /// <summary>Short human-readable description of the most recent auto action. For the overlay.</summary>
     public string LastActionDescription { get; private set; } = "(none)";
 
@@ -143,6 +154,13 @@ public sealed class AutoPlayLoop : IDisposable
         bool isCallPrompt = (snap.Legal.Flags & acceptable) != 0;
         bool isDiscardTurn = snap.Legal.Can(Engine.ActionFlags.Discard);
 
+        // Clear the riichi-confirm latch when the Riichi popup goes away: either
+        // no more call-prompt flags set, or the Riichi flag specifically cleared.
+        // This makes the next Riichi popup (next round or after the discard
+        // commits) start fresh on the first-click path.
+        if (!isCallPrompt || !snap.Legal.Can(Engine.ActionFlags.Riichi))
+            riichiConfirmLatched = false;
+
         if (!isCallPrompt && !isDiscardTurn)
         {
             // Not our moment — clear context so next real turn fires fresh.
@@ -159,9 +177,69 @@ public sealed class AutoPlayLoop : IDisposable
             return;
         }
 
+        // Post-declaration Riichi popup handling: if we already dispatched
+        // riichi-confirm once and the popup is STILL showing Riichi as a
+        // legal option, the game's second "yaku preview / confirm" popup is
+        // up and re-clicking the list no-ops (declaration is already committed).
+        // Complete the riichi by discarding the drawn tile (tsumogiri) — same
+        // opcode-7 FireCallback that works during a normal discard turn.
+        if (riichiConfirmLatched && isCallPrompt
+            && snap.Legal.Can(Engine.ActionFlags.Riichi)
+            && hand > 0 && hand % 3 == 2)
+        {
+            lastDispatchedContext = context;
+            ScheduleRiichiTsumogiri();
+            return;
+        }
+
         lastDispatchedContext = context;
         if (isCallPrompt) ScheduleCallDecision(context);
         else ScheduleDiscard();
+    }
+
+    /// <summary>
+    /// Dispatch a tsumogiri discard (slot 13 — the last-drawn tile) to complete
+    /// a riichi declaration whose yaku-preview popup is blocking the game. The
+    /// popup stays visible over the tile UI but tile discards still go through
+    /// the normal <c>FireCallback([Int=7, Int=slot])</c> path. Safe fallback:
+    /// tsumogiri never breaks tenpai (the drawn tile is always discardable
+    /// post-draw), so the game accepts it as the riichi discard.
+    /// </summary>
+    private void ScheduleRiichiTsumogiri()
+    {
+        actionPending = true;
+        actionPendingStartedAt = DateTime.UtcNow;
+        lastActionAt = DateTime.UtcNow;
+        var delay = HumanTiming.RandomDelay(medianMs: 700);
+        _ = Plugin.Framework.RunOnTick(() =>
+        {
+            try
+            {
+                var snap = plugin.AddonReader.TryBuildSnapshot();
+                if (snap is null || snap.Hand.Count < 14)
+                {
+                    LastActionDescription =
+                        $"riichi-tsumogiri aborted: hand={snap?.Hand.Count ?? -1}";
+                    return;
+                }
+                var tile = snap.Hand[13];
+                var result = plugin.Dispatcher.DispatchDiscard(13);
+                LastActionDescription = $"auto-riichi-tsumogiri {tile} slot=13 → {result}";
+                Plugin.Log.Info(
+                    $"[AutoPlayLoop] riichi-tsumogiri dispatch: {LastActionDescription}");
+                // Consumed: don't fire tsumogiri again on the next retry.
+                riichiConfirmLatched = false;
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Error($"AutoPlayLoop riichi-tsumogiri error: {ex}");
+                LastActionDescription = $"riichi-tsumogiri exception: {ex.Message}";
+            }
+            finally
+            {
+                actionPending = false;
+            }
+        }, delay);
     }
 
     private void ScheduleVariantAccept()
@@ -336,6 +414,12 @@ public sealed class AutoPlayLoop : IDisposable
                     // Meld recording is handled centrally by InputEventLogger's
                     // FireCallback hook, which sees both our DispatchCall() and manual
                     // in-game clicks. Avoids double-recording.
+                    // Latch on for the post-riichi-confirm popup: the yaku-preview
+                    // confirm popup shares the Riichi-flag signature of the initial
+                    // popup, so without this flag the loop would retry-dispatch
+                    // forever (reported as "character declares riichi over and over"
+                    // on v0.0.0.18 testing).
+                    if (acceptRiichiPopup) riichiConfirmLatched = true;
                 }
                 else
                 {
