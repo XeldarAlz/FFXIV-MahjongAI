@@ -654,22 +654,16 @@ public sealed class MjAutoCommand : IDisposable
                 for (int off = 0; off < 0x300; off += 16)
                     AppendHexRow(sb, cb, off, 16);
 
-                // Dereference a few of the "varying-per-slot" pointer slots
-                // in the component and dump their targets. Diffing visible
-                // slots of the same type should pin which pointer target
-                // carries tile identity.
-                int[] ptrOffsets = { 0x18, 0x20, 0x58, 0x80 };
-                foreach (int po in ptrOffsets)
-                {
-                    nint tgt = *(nint*)(cb + po);
-                    if (tgt == nint.Zero) continue;
-                    if ((ulong)tgt < 0x10000UL || (ulong)tgt > 0x0000_7FFF_FFFF_FFFFUL) continue;
-                    if (((ulong)tgt & 0xF) != 0) continue;
-                    sb.AppendLine($"    -- *comp+0x{po:X2} -> 0x{tgt:X} +0x00..+0x80 --");
-                    byte* tb = (byte*)tgt;
-                    for (int off = 0; off < 0x80; off += 16)
-                        AppendHexRow(sb, tb, off, 16);
-                }
+                // NOTE: an earlier revision dereferenced speculative pointer slots
+                // at offsets { 0x18, 0x20, 0x58, 0x80 } and dumped 0x80 bytes from
+                // each target to help RE the meld-pointer layout. The range/alignment
+                // checks weren't strong enough — the AtkComponentList popup at the
+                // state-6 Riichi prompt holds one of those slots as garbage that
+                // passed the checks but crashed the client with AccessViolation when
+                // read (follow-up repro on issue #22). Meld tracking is driven by
+                // the FireCallback hook in InputEventLogger now, not these
+                // speculative reads, so the block is removed rather than made
+                // SEH-safe.
 
                 if (sub.NodeListCount == 0 || sub.NodeList == null) continue;
                 for (int j = 0; j < sub.NodeListCount; j++)
