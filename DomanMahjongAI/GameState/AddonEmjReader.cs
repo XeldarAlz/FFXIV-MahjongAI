@@ -483,30 +483,37 @@ public sealed class AddonEmjReader : IDisposable
     private static unsafe LegalActions BuildLegalActions(
         AtkUnitBase* unit, int stateCode, List<Tile> hand, AtkValue* atkValues, int atkCount)
     {
-        // Call-prompt states 15 (pon/chi/kan/ron) and 6 (riichi/tsumo self-declarations)
-        // are overloaded: they also tick during idle frames that carry banner text for
-        // opponents' declarations, which our AtkValues label scan would otherwise pick up
-        // as a prompt. Gate on the modal-shell node: the Emj addon's id=104/type=1052
-        // host contains an inner id=3/type=1030 shell whose Visible flag only flips on
-        // while the game is actually awaiting a decision. Verified across pon+pass,
-        // riichi-confirm, and ron+pass captures. Button payload is the same for both
-        // state codes — FireCallback([Int=11, Int=0..N]) — proven by RE captures of
-        // manual riichi/tsumo clicks at state 6 firing opcode 11 with option 0.
-        if ((stateCode == 15 || stateCode == 6)
-            && atkValues != null && IsCallModalVisible(unit))
-            return BuildCallPromptLegal(hand, atkValues, atkCount);
-
-        // State 28: the novice-table standalone Riichi/Pass popup (and other call
-        // prompts served through an AtkComponentList widget). Button labels do NOT
-        // live in parent AtkValues here — they live inside each ListItemRenderer's
-        // AtkTextNode child. A capture of a manual Riichi click at state 28 confirmed
-        // FireCallback([11, 0]) is still the click payload; only prompt-detection
-        // needed a different path. Without this branch, state 28 falls through to
-        // the hand%3==2 fallback, which fails because this sub-state presents
-        // a 13-tile hand (drawn tile detached), so Legal.None is returned and
-        // AutoPlayLoop idles silently (issue #22).
-        if (stateCode == 28 && IsCallModalVisible(unit))
+        // Call-prompt states 15 / 6 / 28 all share the same modal-shell structure
+        // (id=104 host → id=3 shell) but differ in where the button labels live:
+        //  - Classic state-15 pon/chi/kan/ron: button-label Strings in parent AtkValues
+        //    (scanned by BuildCallPromptLegal); also carries the claimed-tile texture
+        //    at AtkValues[19] for chi-candidate derivation, which only that path does.
+        //  - State-6 self-declarations and state-28 novice-table prompts: the shell is
+        //    an AtkComponentList and labels live inside child ListItemRenderer text
+        //    nodes (read by BuildCallPromptLegalFromListItems). Parent AtkValues 0..19
+        //    carry only Ints/Bools in this mode — the string-scan finds nothing.
+        // The shell-visible gate filters out idle frames where opponents' banner text
+        // ("Pon!", "Riichi!") would otherwise trick the scan into thinking it's a
+        // prompt. Try AtkValues first so state-15 keeps its candidate derivation; fall
+        // back to list-item reading whenever the scan finds only the Pass flag. This
+        // catches state-6 Riichi popups that used to leak through as LegalActions.None
+        // (issue #22 regression on v0.0.0.15 — state-28 got handled but state-6 with
+        // the same list widget didn't).
+        if ((stateCode == 15 || stateCode == 6 || stateCode == 28)
+            && IsCallModalVisible(unit))
+        {
+            const ActionFlags acceptMask =
+                ActionFlags.Pon | ActionFlags.Chi |
+                ActionFlags.MinKan | ActionFlags.ShouMinKan |
+                ActionFlags.Ron | ActionFlags.Riichi | ActionFlags.Tsumo;
+            if (atkValues != null)
+            {
+                var scanned = BuildCallPromptLegal(hand, atkValues, atkCount);
+                if ((scanned.Flags & acceptMask) != 0)
+                    return scanned;
+            }
             return BuildCallPromptLegalFromListItems(unit);
+        }
 
         // "Our turn to discard" = 14 tiles with 0 melds, 11 with 1 meld, 8 with 2, etc. —
         // all satisfy hand % 3 == 2. Hardcoding 14 skipped every post-call discard.
