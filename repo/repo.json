@@ -25,7 +25,7 @@
     "Punchline": "Doman Mahjong helper — hints or auto-play.",
     "Description": "A helper for Doman Mahjong at the Gold Saucer. Two modes:\n\n• Hint mode (default): shows the best tile to discard and a short explanation. You still click every move.\n• Auto-play: the plugin watches the table and clicks for you with natural pacing.\n\nStarts off by default. You must accept a short notice before auto-play can be turned on, and you can switch back to hints or turn it off at any time from the plugin window.",
     "Changelog": "v0.0.0.17 — second follow-up to #22: the Riichi popup is an AtkComponentList widget whose click pipeline runs through the list's own CallBackInterface, so the previous FireCallback-only dispatch only played the declaration animation without committing state (auto-play spammed riichi-confirm every few seconds). Dispatches now route through AtkComponentList.SelectItem for state-6/28 list popups while preserving FireCallback for classic state-15 pon/chi/ron button rows (distinguished by whether button-label strings show up in parent AtkValues). After a successful riichi-confirm the novice client shows a yaku-preview popup that shares the same detection signature — the loop now dispatches a tsumogiri discard to complete the declaration instead of re-clicking the already-committed list.",
-    "DownloadCount": 80,
+    "DownloadCount": 81,
     "LastUpdate": 0,
     "DownloadLinkInstall": "https://github.com/XeldarAlz/FFXIV-DomanMahjongSolver/releases/latest/download/latest.zip",
     "DownloadLinkTesting": "https://github.com/XeldarAlz/FFXIV-DomanMahjongSolver/releases/latest/download/latest.zip",
