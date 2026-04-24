@@ -16,6 +16,15 @@ internal interface IEmjVariant
     string Name { get; }
 
     /// <summary>
+    /// The addon name this variant was designed against (<c>"Emj"</c>,
+    /// <c>"EmjL"</c>, ...). Used by <see cref="VariantSelector"/> as a
+    /// tiebreaker when more than one variant's <see cref="Probe"/> returns
+    /// true — which happens legitimately on an empty hand where the tile-
+    /// encoding fingerprint is inconclusive.
+    /// </summary>
+    string PreferredAddonName { get; }
+
+    /// <summary>
     /// Cheap structural fingerprint. Called on a live addon pointer. Must not
     /// allocate, log, or mutate plugin state. Returning true means "this
     /// variant's offsets are consistent with what I see here" — not a guarantee

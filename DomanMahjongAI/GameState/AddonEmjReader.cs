@@ -44,15 +44,15 @@ public sealed class AddonEmjReader : IDisposable
     {
         this.plugin = plugin;
 
-        // Sequence 4 appends EmjLVariant to this list; for now only Emj is
-        // registered, so VariantSelector's probe gate is effectively a
-        // passthrough on EU / existing clients. On a client whose layout
-        // doesn't match Emj's fingerprint (e.g. Iris's EmjL), the selector
-        // logs a one-time warning and TryBuildSnapshot returns null — a
-        // loud failure instead of today's silent mis-parse.
+        // Known variants, in probe order. Both must stay registered: on an
+        // empty-hand frame the tile-encoding fingerprint can't distinguish
+        // them, so the selector falls back to PreferredAddonName matching
+        // against the name MahjongAddon resolved. Order here is also the
+        // arbitrary tiebreaker when neither name wins.
         this.selector = new VariantSelector(new IEmjVariant[]
         {
             new EmjVariant(),
+            new EmjLVariant(),
         });
 
         // Register against every known Mahjong addon name (issue #13): some clients
@@ -147,10 +147,10 @@ public sealed class AddonEmjReader : IDisposable
     /// </summary>
     public unsafe StateSnapshot? TryBuildSnapshot()
     {
-        if (!MahjongAddon.TryGet(out var unit, out _)) return null;
+        if (!MahjongAddon.TryGet(out var unit, out var resolvedName)) return null;
         if (!unit->IsVisible) return null;
 
-        var variant = selector.Resolve(unit);
+        var variant = selector.Resolve(unit, resolvedName);
         if (variant is null) return null;
 
         return variant.TryBuildSnapshot(
