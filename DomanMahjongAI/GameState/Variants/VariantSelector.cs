@@ -46,26 +46,52 @@ internal sealed class VariantSelector
     public IReadOnlyList<IEmjVariant> Variants => variants;
 
     /// <summary>
-    /// Resolve the variant for the live addon pointer. Caches first match for
-    /// the session; on a <see cref="IEmjVariant.Probe"/> miss (e.g. a patch
-    /// nudges an offset enough to fail the fingerprint), the next tick
-    /// re-scans all registered variants.
+    /// Resolve the variant for the live addon pointer. Caches the chosen
+    /// variant for the session; on a <see cref="IEmjVariant.Probe"/> miss
+    /// (e.g. a patch nudges an offset enough to fail the fingerprint), the
+    /// next tick re-scans all registered variants.
+    ///
+    /// <para>When more than one variant's probe returns true — which happens
+    /// on an empty hand where the tile-encoding fingerprint can't distinguish
+    /// bases — the variant whose <see cref="IEmjVariant.PreferredAddonName"/>
+    /// matches <paramref name="resolvedAddonName"/> wins. If none match, the
+    /// first registered winner is picked (stable, arbitrary).</para>
     /// </summary>
-    public unsafe IEmjVariant? Resolve(AtkUnitBase* unit)
+    public unsafe IEmjVariant? Resolve(AtkUnitBase* unit, string resolvedAddonName)
     {
-        if (cached is not null && cached.Probe(unit))
+        // Keep the cached variant only if both the probe and the name
+        // tiebreaker still agree — a cached "Emj" that matches because the
+        // hand is empty shouldn't linger after the addon rebinds to "EmjL".
+        if (cached is not null
+            && cached.Probe(unit)
+            && cached.PreferredAddonName == resolvedAddonName)
         {
             firstMissAt = null;
             return cached;
         }
 
+        IEmjVariant? winner = null;
         foreach (var v in variants)
         {
             if (!v.Probe(unit)) continue;
-            if (cached != v)
+            // Prefer a name match; otherwise keep the first passing variant
+            // as the fallback.
+            if (v.PreferredAddonName == resolvedAddonName)
             {
-                Plugin.Log.Info($"[MjAuto] Emj variant resolved as \"{v.Name}\"");
-                cached = v;
+                winner = v;
+                break;
+            }
+            winner ??= v;
+        }
+
+        if (winner is not null)
+        {
+            if (cached != winner)
+            {
+                Plugin.Log.Info(
+                    $"[MjAuto] Emj variant resolved as \"{winner.Name}\" " +
+                    $"(addon=\"{resolvedAddonName}\")");
+                cached = winner;
                 loggedUnmatched = false;
             }
             firstMissAt = null;
@@ -73,10 +99,9 @@ internal sealed class VariantSelector
         }
 
         // No probe matched — either a transient post-setup frame or an
-        // un-implemented client variant (issue #13's EmjL prior to its
-        // dedicated variant shipping). Start the settle clock on first miss,
-        // only warn once sustained misses cross the threshold, and reset
-        // both clock and logged-flag on any recovery above.
+        // un-implemented client variant. Start the settle clock on first
+        // miss, only warn once sustained misses cross the threshold, and
+        // reset both clock and logged-flag on any recovery above.
         firstMissAt ??= DateTime.UtcNow;
         if (!loggedUnmatched && DateTime.UtcNow - firstMissAt.Value >= UnmatchedWarnDelay)
         {
