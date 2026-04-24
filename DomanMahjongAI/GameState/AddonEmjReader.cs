@@ -28,6 +28,13 @@ public sealed class AddonEmjReader : IDisposable
     private readonly VariantSelector selector;
     private bool disposed;
 
+    /// <summary>
+    /// The variant selector in use. Exposed for diagnostic surfaces
+    /// (<c>/mjauto variant dump</c>) that need to enumerate registered
+    /// variants and re-probe them on demand.
+    /// </summary>
+    internal VariantSelector Selector => selector;
+
     public AddonEmjObservation LastObservation { get; private set; } = AddonEmjObservation.Empty;
 
     /// <summary>Fired whenever any lifecycle event updates the observation.</summary>
