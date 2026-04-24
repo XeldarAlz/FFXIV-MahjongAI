@@ -12,7 +12,9 @@ namespace DomanMahjongAI.Commands;
 public sealed class MjAutoCommand : IDisposable
 {
     private const string Primary = "/mjauto";
-    private const string HelpText = "Open Doman Mahjong Solver. Subcommands: on | off | open | debug | policy <eff|mcts> | pass <N> | dump | addons [filter] | dumpmem [offset] [length] | atkvalues | agent [length] | emj [length] | snap <label> | autosnap <on|off> | walknodes | log <on|off> | capture <label> | variant dump | testdiscard <slot> | autodiscard";
+    // Short one-liner for Dalamud's command panel. The full subcommand reference
+    // lives in `/mjauto help` so the panel entry stays readable.
+    private const string HelpText = "Open the Doman Mahjong Solver window. Type /mjauto help for the full command list.";
     // Note: removed /mjauto scan and /mjauto followptr — both dereferenced untrusted pointers and crashed the client.
 
     private readonly Plugin plugin;
@@ -140,11 +142,60 @@ public sealed class MjAutoCommand : IDisposable
                 HandleAutoDiscard();
                 break;
 
+            case "help":
+            case "?":
+                PrintHelp();
+                break;
 
             default:
-                Plugin.ChatGui.PrintError($"[MjAuto] Unknown subcommand: {sub}. {HelpText}");
+                Plugin.ChatGui.PrintError($"[MjAuto] Unknown subcommand: '{sub}'. Type /mjauto help for the command list.");
                 break;
         }
+    }
+
+    /// <summary>
+    /// Print the command reference to chat. End-user commands always shown; the
+    /// developer / capture / RE sections appear only when DevMode is on, so a
+    /// normal player's help list stays short and uncluttered. One line per
+    /// ChatGui.Print call — FFXIV's chat renderer doesn't split embedded
+    /// newlines within a single message.
+    /// </summary>
+    private void PrintHelp()
+    {
+        Plugin.ChatGui.Print("Doman Mahjong Solver — /mjauto commands");
+        Plugin.ChatGui.Print("  /mjauto — open the plugin window");
+        Plugin.ChatGui.Print("  /mjauto on | off — arm / disarm automation");
+        Plugin.ChatGui.Print("  /mjauto help — show this help");
+
+        if (!plugin.Configuration.DevMode)
+        {
+            Plugin.ChatGui.Print("  (enable \"Developer tools\" in Settings for debug commands)");
+            return;
+        }
+
+        Plugin.ChatGui.Print("Developer console:");
+        Plugin.ChatGui.Print("  /mjauto debug — toggle the developer console");
+        Plugin.ChatGui.Print("  /mjauto policy <eff|mcts> — switch AI strength from chat");
+
+        Plugin.ChatGui.Print("Manual override:");
+        Plugin.ChatGui.Print("  /mjauto autodiscard — run the policy once and discard");
+        Plugin.ChatGui.Print("  /mjauto testdiscard <0..13> — dispatch a discard at a slot");
+        Plugin.ChatGui.Print("  /mjauto pass <0..5> — send a raw call-option index");
+
+        Plugin.ChatGui.Print("Capture for bug reports:");
+        Plugin.ChatGui.Print("  /mjauto log <on|off> — record clicks to emj-events.log");
+        Plugin.ChatGui.Print("  /mjauto capture <label> — capture a single click");
+        Plugin.ChatGui.Print("  /mjauto snap <label> — dump addon + agent memory to a file");
+        Plugin.ChatGui.Print("  /mjauto autosnap <on|off> — auto-snap on state changes");
+
+        Plugin.ChatGui.Print("Reverse-engineering dumps:");
+        Plugin.ChatGui.Print("  /mjauto variant dump — layout dump for new client variants");
+        Plugin.ChatGui.Print("  /mjauto walknodes — dump the AtkUld node tree");
+        Plugin.ChatGui.Print("  /mjauto addons [filter] — list loaded addons");
+        Plugin.ChatGui.Print("  /mjauto dumpmem [offset] [length] — hex dump of addon memory");
+        Plugin.ChatGui.Print("  /mjauto atkvalues — dump the Emj AtkValues array");
+        Plugin.ChatGui.Print("  /mjauto agent [length] — hex dump of AgentEmj");
+        Plugin.ChatGui.Print("  /mjauto emj [length] — hex dump of the Emj module instance");
     }
 
     private void HandleAutoDiscard()

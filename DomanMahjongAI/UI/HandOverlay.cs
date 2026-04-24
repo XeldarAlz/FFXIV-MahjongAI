@@ -180,14 +180,13 @@ public sealed class HandOverlay : IDisposable
         float t = (float)((DateTime.UtcNow.TimeOfDay.TotalSeconds % 1.4) / 1.4);
         float pulse = 0.6f + 0.4f * MathF.Sin(t * MathF.PI * 2f);
 
-        // Green for a normal hand discard, amber for the just-drawn tile (slot 13)
-        // so the user immediately sees "tsumogiri" vs. "discard from hand."
-        var baseColor = isDrawnTile
-            ? new Vector4(1.00f, 0.75f, 0.15f, 1f)   // amber
-            : new Vector4(0.15f, 0.95f, 0.45f, 1f);  // green
+        // Theme.Accent for a normal hand discard, Theme.Warn for the just-drawn
+        // tile (slot N-1) so the user immediately sees "tsumogiri" vs. "discard
+        // from hand." Same palette as the plugin window surfaces.
+        var baseColor = isDrawnTile ? Theme.Warn : Theme.Accent;
 
-        uint edge = PackColor(baseColor, pulse);
-        uint fill = PackColor(baseColor, pulse * 0.22f);
+        uint edge = Theme.Pack(baseColor, pulse);
+        uint fill = Theme.Pack(baseColor, pulse * 0.22f);
 
         var dl = ImGui.GetForegroundDrawList();
         var min = rect.Pos;
@@ -211,14 +210,4 @@ public sealed class HandOverlay : IDisposable
             edge);
     }
 
-    private static uint PackColor(Vector4 rgba, float alphaMul)
-    {
-        float a = Math.Clamp(rgba.W * alphaMul, 0f, 1f);
-        uint r = (uint)(Math.Clamp(rgba.X, 0f, 1f) * 255f);
-        uint g = (uint)(Math.Clamp(rgba.Y, 0f, 1f) * 255f);
-        uint b = (uint)(Math.Clamp(rgba.Z, 0f, 1f) * 255f);
-        uint ai = (uint)(a * 255f);
-        // ImGui packs as ABGR in its uint32 color format.
-        return (ai << 24) | (b << 16) | (g << 8) | r;
-    }
 }
