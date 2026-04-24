@@ -1,16 +1,18 @@
 using Dalamud.Game.Command;
 using DomanMahjongAI.GameState;
+using DomanMahjongAI.GameState.Variants;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using System;
 using System.Linq;
+using ValueType = FFXIVClientStructs.FFXIV.Component.GUI.ValueType;
 
 namespace DomanMahjongAI.Commands;
 
 public sealed class MjAutoCommand : IDisposable
 {
     private const string Primary = "/mjauto";
-    private const string HelpText = "Open Doman Mahjong Solver. Subcommands: on | off | open | debug | policy <eff|mcts> | pass <N> | dump | addons [filter] | dumpmem [offset] [length] | atkvalues | agent [length] | emj [length] | snap <label> | autosnap <on|off> | walknodes | log <on|off> | capture <label> | testdiscard <slot> | autodiscard";
+    private const string HelpText = "Open Doman Mahjong Solver. Subcommands: on | off | open | debug | policy <eff|mcts> | pass <N> | dump | addons [filter] | dumpmem [offset] [length] | atkvalues | agent [length] | emj [length] | snap <label> | autosnap <on|off> | walknodes | log <on|off> | capture <label> | variant dump | testdiscard <slot> | autodiscard";
     // Note: removed /mjauto scan and /mjauto followptr — both dereferenced untrusted pointers and crashed the client.
 
     private readonly Plugin plugin;
@@ -120,6 +122,10 @@ public sealed class MjAutoCommand : IDisposable
 
             case "capture":
                 HandleCapture(rest);
+                break;
+
+            case "variant":
+                HandleVariant(rest);
                 break;
 
             case "testdiscard":
@@ -263,6 +269,239 @@ public sealed class MjAutoCommand : IDisposable
         Plugin.ChatGui.Print(
             $"[MjAuto] capture armed: '{label}'. Click the action in-game once. " +
             $"Auto-disarms after one click or 60s. File: {plugin.EventLogger.CaptureLogPath}");
+    }
+
+    /// <summary>
+    /// Variant-diagnostic subcommand. Today the only action is <c>dump</c>, which
+    /// writes one self-contained file describing the current Mahjong addon's
+    /// layout — enough for a maintainer to build a new <see cref="IEmjVariant"/>
+    /// from without live client access (issue #13 workflow).
+    ///
+    /// <para>Room intentionally left for future actions (<c>probe</c>, <c>list</c>)
+    /// without disturbing the subcommand grammar.</para>
+    /// </summary>
+    private void HandleVariant(string arg)
+    {
+        var parts = arg.Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+        var sub = parts.Length > 0 ? parts[0].ToLowerInvariant() : string.Empty;
+
+        switch (sub)
+        {
+            case "dump":
+                DumpVariant();
+                break;
+            case "":
+                Plugin.ChatGui.Print("[MjAuto] Usage: /mjauto variant dump");
+                break;
+            default:
+                Plugin.ChatGui.PrintError(
+                    $"[MjAuto] Unknown variant subcommand: '{sub}'. Known: dump.");
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Write one self-contained layout dump for the live Mahjong addon. Bundles
+    /// the per-variant probe verdicts, AtkUnitBase metadata, the full AtkValues
+    /// array, the flat NodeList plus every visible component's inner tree, a
+    /// 1 KiB memory sample around the known Emj offset hotspots (scores at
+    /// +0x0500/7E0/AC0/DA0 and hand at +0x0DB8), and a small AgentEmj header
+    /// sample for cross-reference.
+    ///
+    /// <para>Intended output: a single file an external reporter can attach to
+    /// issue #13 when their client doesn't match any registered variant. The
+    /// maintainer then builds the corresponding <see cref="IEmjVariant"/> by
+    /// diffing offsets/IDs against the reference Emj dump.</para>
+    /// </summary>
+    private unsafe void DumpVariant()
+    {
+        Plugin.Framework.RunOnFrameworkThread(() =>
+        {
+            if (!MahjongAddon.TryGet(out var unit, out var resolvedName))
+            {
+                Plugin.ChatGui.PrintError(
+                    "[MjAuto] Mahjong addon not found — seat at a table first, then retry.");
+                return;
+            }
+
+            var sb = new System.Text.StringBuilder();
+            var now = DateTime.UtcNow;
+            nint addonAddr = (nint)unit;
+
+            // Header: everything needed to identify the capture without opening the file.
+            sb.AppendLine($"# Emj variant dump — utc={now:o}");
+            sb.AppendLine(
+                $"# Resolved addon name: \"{resolvedName}\"  " +
+                $"(candidates: {string.Join(", ", MahjongAddon.CandidateNames)})");
+            sb.AppendLine($"# Addon pointer: 0x{addonAddr:X}  visible={unit->IsVisible}");
+            if (unit->RootNode != null)
+                sb.AppendLine(
+                    $"# Root size: {unit->RootNode->Width}x{unit->RootNode->Height}");
+            sb.AppendLine(
+                $"# AtkValuesCount={unit->AtkValuesCount}  " +
+                $"NodeListCount={unit->UldManager.NodeListCount}  " +
+                $"LoadedState={unit->UldManager.LoadedState}");
+            sb.AppendLine();
+
+            // Probe results: top-of-file so the reader sees the verdict first.
+            sb.AppendLine("## Variant probe results");
+            var selectorVariants = plugin.AddonReader.Selector.Variants;
+            if (selectorVariants.Count == 0)
+            {
+                sb.AppendLine("  (no variants registered)");
+            }
+            else
+            {
+                foreach (var v in selectorVariants)
+                {
+                    bool matched = false;
+                    try { matched = v.Probe(unit); }
+                    catch (Exception ex)
+                    {
+                        sb.AppendLine($"  {v.Name,-20} THREW: {ex.GetType().Name}: {ex.Message}");
+                        continue;
+                    }
+                    sb.AppendLine($"  {v.Name,-20} {(matched ? "MATCH" : "miss")}");
+                }
+            }
+            sb.AppendLine();
+
+            // AtkValues: slot number, type, decoded value. First 64 only so strings
+            // don't blow up the file, but the full count is in the header above.
+            sb.AppendLine("## AtkValues");
+            var values = unit->AtkValues;
+            int atkCount = unit->AtkValuesCount;
+            if (values == null || atkCount == 0)
+            {
+                sb.AppendLine("  (null or empty)");
+            }
+            else
+            {
+                int cap = Math.Min(atkCount, 64);
+                for (int i = 0; i < cap; i++)
+                    sb.AppendLine($"  [{i,3}] {FormatAtkValue(values[i])}");
+                if (atkCount > cap)
+                    sb.AppendLine($"  (... {atkCount - cap} more omitted)");
+            }
+            sb.AppendLine();
+
+            // Flat NodeList — reuse WriteNodeRow so the format matches /mjauto walknodes.
+            sb.AppendLine("## NodeList (flat)");
+            var mgr = unit->UldManager;
+            for (int i = 0; i < mgr.NodeListCount; i++)
+            {
+                var n = mgr.NodeList[i];
+                if (n == null)
+                {
+                    sb.AppendLine($"  [{i,4}] null");
+                    continue;
+                }
+                WriteNodeRow(sb, i, n);
+            }
+            sb.AppendLine();
+
+            // Component inner trees — only for VISIBLE type>=1000 nodes. Invisible
+            // components balloon the file without contributing signal for layout
+            // disambiguation (hidden prompts share their tree with every other state).
+            sb.AppendLine("## Component inner trees (visible, type >= 1000)");
+            for (int i = 0; i < mgr.NodeListCount; i++)
+            {
+                var n = mgr.NodeList[i];
+                if (n == null) continue;
+                if ((int)n->Type < 1000) continue;
+                if (!n->NodeFlags.HasFlag(NodeFlags.Visible)) continue;
+
+                var compNode = (AtkComponentNode*)n;
+                var comp = compNode->Component;
+                if (comp == null) continue;
+                var subMgr = comp->UldManager;
+                sb.AppendLine(
+                    $"  # [{i,4}] type={n->Type} id={n->NodeId} @0x{(nint)n:X}  " +
+                    $"subCount={subMgr.NodeListCount}  comp=0x{(nint)comp:X}");
+
+                if (subMgr.NodeList == null || subMgr.NodeListCount == 0) continue;
+                for (int j = 0; j < subMgr.NodeListCount; j++)
+                {
+                    var sn = subMgr.NodeList[j];
+                    if (sn == null)
+                    {
+                        sb.AppendLine($"    sub[{j,3}] null");
+                        continue;
+                    }
+                    sb.Append("    ");
+                    WriteNodeRow(sb, j, sn);
+                }
+            }
+            sb.AppendLine();
+
+            // Memory sample — covers the known Emj offset hotspots so a reporter
+            // can eyeball whether their client has comparable values in the same
+            // places (score words, discard-count bytes, hand tile array).
+            sb.AppendLine("## Addon memory sample (+0x0400..+0x0E80)");
+            byte* basePtr = (byte*)addonAddr;
+            for (int off = 0x0400; off < 0x0E80; off += 16)
+                AppendHexRow(sb, basePtr, off, 16);
+            sb.AppendLine();
+
+            // AgentEmj header — small sample for cross-reference. Full dump is
+            // still available via `/mjauto agent` if the variant work needs more.
+            sb.AppendLine("## AgentEmj header sample (+0x0000..+0x0200)");
+            var agentModule = AgentModule.Instance();
+            if (agentModule == null)
+            {
+                sb.AppendLine("  (AgentModule unavailable)");
+            }
+            else
+            {
+                var agent = agentModule->GetAgentByInternalId((AgentId)5);
+                if (agent == null)
+                {
+                    sb.AppendLine("  (AgentEmj not found — GetAgentByInternalId(5) returned null)");
+                }
+                else
+                {
+                    sb.AppendLine($"  # AgentEmj @ 0x{(nint)agent:X}");
+                    byte* agentPtr = (byte*)agent;
+                    for (int off = 0; off < 0x0200; off += 16)
+                        AppendHexRow(sb, agentPtr, off, 16);
+                }
+            }
+
+            var dir = Plugin.PluginInterface.GetPluginConfigDirectory();
+            System.IO.Directory.CreateDirectory(dir);
+            var path = System.IO.Path.Combine(dir, "emj-variant-dump.txt");
+            System.IO.File.WriteAllText(path, sb.ToString());
+            Plugin.ChatGui.Print(
+                $"[MjAuto] variant dump → {path}. " +
+                $"Attach this file to issue #13 when reporting a new client variant.");
+        });
+    }
+
+    /// <summary>
+    /// Render one <see cref="AtkValue"/> as a single-line string suitable for
+    /// the variant dump. Keeps strings length-capped so one weirdly-long
+    /// ManagedString doesn't torpedo the file layout.
+    /// </summary>
+    private static unsafe string FormatAtkValue(AtkValue v)
+    {
+        switch (v.Type)
+        {
+            case ValueType.Int:
+                return $"{v.Type,-14} Int={v.Int}";
+            case ValueType.UInt:
+                return $"{v.Type,-14} UInt={v.UInt} (0x{v.UInt:X})";
+            case ValueType.Bool:
+                return $"{v.Type,-14} Bool={v.Byte != 0}";
+            case ValueType.String:
+            case ValueType.String8:
+            case ValueType.ManagedString:
+                if (v.String.Value == null) return $"{v.Type,-14} (null)";
+                var s = System.Text.Encoding.UTF8.GetString(v.String);
+                if (s.Length > 80) s = s[..80] + "...";
+                return $"{v.Type,-14} \"{s.Replace("\n", "\\n")}\"";
+            default:
+                return $"{v.Type,-14} raw=0x{v.UInt:X}";
+        }
     }
 
     /// <summary>

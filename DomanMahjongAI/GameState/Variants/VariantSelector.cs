@@ -39,6 +39,13 @@ internal sealed class VariantSelector
     }
 
     /// <summary>
+    /// All registered variants, in probe order. Exposed for diagnostic surfaces
+    /// (e.g. <c>/mjauto variant dump</c>) so they can report probe results for
+    /// every candidate without the selector's caching layer in the way.
+    /// </summary>
+    public IReadOnlyList<IEmjVariant> Variants => variants;
+
+    /// <summary>
     /// Resolve the variant for the live addon pointer. Caches first match for
     /// the session; on a <see cref="IEmjVariant.Probe"/> miss (e.g. a patch
     /// nudges an offset enough to fail the fingerprint), the next tick
