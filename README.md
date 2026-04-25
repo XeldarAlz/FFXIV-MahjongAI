@@ -26,6 +26,20 @@ You sit at a mahjong table. A small window shows up, watches your hand, and sugg
 - **Hints** — shows the best discard + top alternatives with a reason. You click every move. *100% safe.*
 - **Auto-play** — plays for you with natural pacing that looks like a person thinking.
 
+## Client compatibility
+
+The mahjong addon ships under different names and memory layouts per region. EU is the reference variant. NA support is in active work; JP and OC need verification.
+
+| Feature | EU (`Emj`) | NA (`EmjL`) | JP | OC |
+|---|---|---|---|---|
+| Window detection | Yes | Yes | Untested | Untested |
+| Hand / score reading | Yes | Yes | Untested | Untested |
+| Discard suggestions | Yes | Misaligned ([#30](https://github.com/XeldarAlz/FFXIV-DomanMahjongSolver/issues/30)) | Untested | Untested |
+| Auto-discard | Yes | Blocked by suggestion miss | Untested | Untested |
+| Call prompts (Pon/Chi/Kan) | Yes | Chi miss ([#30](https://github.com/XeldarAlz/FFXIV-DomanMahjongSolver/issues/30)) | Untested | Untested |
+
+If you're on JP or OC and willing to help verify: seat at a Doman table, run `/mjauto variant dump`, and attach the file to a new issue. That's the input needed to wire each client up.
+
 ## Install
 
 In-game: `/xlsettings` → **Experimental** → paste into **Custom Plugin Repositories**:
@@ -87,11 +101,32 @@ FFXIV-DomanMahjongSolver/
 
 Bump `<Version>` in `DomanMahjongAI/DomanMahjongAI.csproj` **and** `AssemblyVersion` + `TestingAssemblyVersion` in `repo/repo.json` (all must match). Merge to main → `auto-tag` workflow creates the `vX.Y.Z` tag → `release` workflow builds and uploads `latest.zip`. On first run per version, the release tag sometimes needs a one-time manual re-push (GitHub won't let workflow-pushed tags trigger other workflows).
 
-### Known outstanding work
+### Roadmap
 
-- Self-initiated riichi / tsumo / ron / ankan use speculative `FireCallback` opcodes — accepts at call prompts work (opcode 11, option 0); discard-time declarations may still fail.
-- Opponent discard pools, dora indicator, dealer, round wind, honba are unread — the opponent model runs on a partial view.
-- Multi-chi variant selection currently always picks the first variant (leftmost button).
-- Tracked open melds are lost on mid-round plugin reload (scorer falls back to tsumogiri until hand stabilizes).
+The end goal is full intelligent automation across **all clients** (EU, NA, JP, OC) — addon detection, tile reading, hint overlay, auto-discard, and full call acceptance (Pon / Chi / Kan / Riichi / Tsumo / Ron) at parity on every variant.
+
+**Shipped**
+
+- Multi-variant addon resolution (`Emj` + `EmjL`) with auto-detect on load
+- Per-variant tile encoding (texture base + byte[1] flip handled for both)
+- Hand / score / discard-count readout
+- Hints mode with reasoning + top-3 alternatives
+- Auto-discard with natural pacing
+- Call-prompt acceptance via `FireCallback` opcode 11, option 0 (verified on `Emj`)
+- Engine: shanten · ukeire · yaku · fu · scoring (140 tests)
+- Policy: efficiency · ISMCTS w/ progressive widening · Bayesian opponent model · evolutionary weight tuner · Tenhou log parser (56 tests)
+
+**In progress**
+
+- NA / `EmjL` AtkValue index parity for hand readout — suggestions reference wrong tile slots ([#30](https://github.com/XeldarAlz/FFXIV-DomanMahjongSolver/issues/30))
+- NA / `EmjL` call-prompt button layout for Pon / Chi / Kan ([#30](https://github.com/XeldarAlz/FFXIV-DomanMahjongSolver/issues/30))
+
+**Planned — remaining scope**
+
+- JP / OC client verification (variant dumps + capture logs needed)
+- Self-initiated riichi / tsumo / ron / ankan opcodes — currently speculative; accepts at call prompts work, discard-time declarations may still fail
+- Opponent discard pools, dora indicator, dealer, round wind, honba — opponent model currently runs on a partial view
+- Multi-chi variant selection — currently always picks the leftmost button
+- Open-meld persistence across mid-round plugin reload — scorer currently falls back to tsumogiri until the hand stabilizes
 
 </details>
