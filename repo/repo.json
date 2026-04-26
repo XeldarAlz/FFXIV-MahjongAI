@@ -25,7 +25,7 @@
     "Punchline": "Doman Mahjong helper — hints or auto-play.",
     "Description": "A helper for Doman Mahjong at the Gold Saucer. Two modes:\n\n• Hint mode (default): shows the best tile to discard and a short explanation. You still click every move.\n• Auto-play: the plugin watches the table and clicks for you with natural pacing.\n\nStarts off by default. You must accept a short notice before auto-play can be turned on, and you can switch back to hints or turn it off at any time from the plugin window.",
     "Changelog": "v0.0.0.21 — review follow-ups from the v0.0.0.20 UI overhaul. MainWindow's Policy.Choose + DiscardScorer.Score are now computed once per frame in DrawLiveCard and passed into both the hand-row highlight and the suggestion panel, instead of each renderer calling them independently — a measurable win with the MCTS policy at 60Hz. Wind-tile glyphs now match the changelog's promise: 東 / 南 / 西 / 北 for winds, 白 / 發 / 中 for dragons (previously winds rendered as ASCII E/S/W/N, which disagreed with the shipped release notes). DebugOverlay's \"addon not found\" message enumerates MahjongAddon.CandidateNames (\"Emj\" or \"EmjL\") instead of hard-coding \"Emj\" — accurate for NA/EmjL clients. Small doc-comment fix to MainWindow clarifying that the DebugOverlay is reachable via Settings (once DevMode is enabled) or /mjauto debug at any time. No gameplay, detection, or command changes.",
-    "DownloadCount": 143,
+    "DownloadCount": 144,
     "LastUpdate": 0,
     "DownloadLinkInstall": "https://github.com/XeldarAlz/FFXIV-DomanMahjongSolver/releases/latest/download/latest.zip",
     "DownloadLinkTesting": "https://github.com/XeldarAlz/FFXIV-DomanMahjongSolver/releases/latest/download/latest.zip",
